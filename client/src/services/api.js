@@ -1,5 +1,21 @@
 const BASE = "/api";
 
+async function parseResponse(res, endpoint) {
+  const text = await res.text();
+  if (!res.ok) {
+    let err = text;
+    try {
+      err = JSON.parse(text).error || text;
+    } catch (e) {}
+    throw new Error(`${endpoint} error ${res.status}: ${err}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error(`${endpoint} JSON parse error: ${text}`);
+  }
+}
+
 // Send a camera frame (base64 JPEG) → get object, position, script, and target word
 export async function detectAndScript(
   imageBase64,
@@ -11,8 +27,7 @@ export async function detectAndScript(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ imageBase64, targetLanguage, nativeLanguage }),
   });
-  if (!res.ok) throw new Error(`detect-and-script ${res.status}`);
-  return res.json();
+  return parseResponse(res, "detect-and-script");
   // Returns: { object, position, script, targetWord, targetPronunciation }
 }
 
@@ -23,8 +38,7 @@ export async function speak(text) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
-  if (!res.ok) throw new Error(`speak ${res.status}`);
-  return res.json();
+  return parseResponse(res, "speak");
   // Returns: { audioBase64, mimeType }
 }
 
@@ -45,8 +59,7 @@ export async function checkAnswer(
       nativeLanguage,
     }),
   });
-  if (!res.ok) throw new Error(`check-answer ${res.status}`);
-  return res.json();
+  return parseResponse(res, "check-answer");
   // Returns: { correct: bool, feedback: string }
 }
 
@@ -66,8 +79,7 @@ export async function phoneStart(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ targetLanguage, nativeLanguage }),
   });
-  if (!res.ok) throw new Error(`phone-start ${res.status}`);
-  return res.json();
+  return parseResponse(res, "phone-start");
 }
 
 // Reply to phone call: process user's language choice and get follow-up script
@@ -91,8 +103,7 @@ export async function phoneReply(
       nativeLanguage,
     }),
   });
-  if (!res.ok) throw new Error(`phone-reply ${res.status}`);
-  return res.json();
+  return parseResponse(res, "phone-reply");
 }
 
 // Phone call struggle: get script when user struggles to find the object
@@ -112,8 +123,7 @@ export async function phoneStruggle(
       nativeLanguage,
     }),
   });
-  if (!res.ok) throw new Error(`phone-struggle ${res.status}`);
-  return res.json();
+  return parseResponse(res, "phone-struggle");
 }
 
 // Phone call found: get final success script
@@ -139,8 +149,7 @@ export async function phoneFound(
       nativeLanguage,
     }),
   });
-  if (!res.ok) throw new Error(`phone-found ${res.status}`);
-  return res.json();
+  return parseResponse(res, "phone-found");
 }
 
 // Check CV: verify if the target object is in the camera frame
@@ -150,6 +159,5 @@ export async function phoneCheckCv(imageBase64, targetObject) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ imageBase64, targetObject }),
   });
-  if (!res.ok) throw new Error(`phone-check-cv ${res.status}`);
-  return res.json();
+  return parseResponse(res, "phone-check-cv");
 }
