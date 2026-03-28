@@ -1,0 +1,275 @@
+/* ── Reset & base ────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0a0f;
+  --surface: rgba(15, 15, 25, 0.85);
+  --border: rgba(255, 255, 255, 0.1);
+  --accent: #7c5cfc;
+  --accent-glow: rgba(124, 92, 252, 0.4);
+  --green: #22c55e;
+  --red: #f43f5e;
+  --text: #f0f0f8;
+  --text-muted: rgba(240, 240, 248, 0.6);
+  --radius: 20px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+html, body, #root { height: 100%; width: 100%; overflow: hidden; background: var(--bg); }
+
+/* ── App shell ───────────────────────────────────────────────────────────── */
+.app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* ── Camera video ────────────────────────────────────────────────────────── */
+.camera-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+/* ── Splash screen ───────────────────────────────────────────────────────── */
+.splash {
+  position: relative;
+  z-index: 10;
+  text-align: center;
+  color: var(--text);
+  padding: 2rem;
+  animation: fadeIn 0.6s ease;
+}
+
+.splash-title {
+  font-size: clamp(2.5rem, 10vw, 4rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, #fff 30%, var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.splash-sub {
+  margin-top: 1rem;
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* ── Overlay ─────────────────────────────────────────────────────────────── */
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: calc(var(--safe-bottom) + 2rem) 1.5rem 2rem;
+  pointer-events: none;
+}
+
+.overlay-card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--surface);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  color: var(--text);
+  pointer-events: auto;
+  animation: slideUp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Still progress ring ─────────────────────────────────────────────────── */
+.still-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: none;
+  position: absolute;
+  top: calc(var(--safe-top) + 50%);
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.still-ring {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  background: conic-gradient(var(--accent) var(--pct), rgba(255,255,255,0.08) var(--pct));
+  box-shadow: 0 0 24px var(--accent-glow);
+  transition: --pct 0.1s linear;
+}
+
+.still-label {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.6);
+}
+
+/* ── Scan card ───────────────────────────────────────────────────────────── */
+.scan-icon { font-size: 2.5rem; display: block; text-align: center; margin-bottom: 0.5rem; }
+
+.pulse { animation: slideUp 0.35s ease, pulseBg 1.2s ease infinite alternate; }
+
+@keyframes pulseBg {
+  from { box-shadow: 0 0 0 0 var(--accent-glow); }
+  to   { box-shadow: 0 0 30px 4px var(--accent-glow); }
+}
+
+.speaking-text {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* ── Guess panel ─────────────────────────────────────────────────────────── */
+.guess-panel { display: flex; flex-direction: column; gap: 1rem; }
+
+.position-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  width: fit-content;
+}
+
+.guess-prompt {
+  font-size: 1.2rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.guess-form { display: flex; gap: 0.5rem; }
+
+.guess-input {
+  flex: 1;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 1rem;
+  padding: 0.75rem 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.guess-input:focus { border-color: var(--accent); }
+.guess-input::placeholder { color: var(--text-muted); }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.btn {
+  padding: 0.75rem 1.25rem;
+  border-radius: 12px;
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+
+.btn:active { transform: scale(0.96); }
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 4px 16px var(--accent-glow);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  text-align: center;
+  width: 100%;
+}
+
+/* ── Result panel ────────────────────────────────────────────────────────── */
+.result-panel { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 0.75rem; }
+
+.result-icon { font-size: 3.5rem; }
+
+.result-icon.correct { filter: drop-shadow(0 0 12px #22c55e88); }
+.result-icon.wrong   { filter: drop-shadow(0 0 12px #f43f5e88); }
+
+.result-feedback { font-size: 1.1rem; color: var(--text-muted); }
+
+.answer-reveal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(255,255,255,0.05);
+  border-radius: 14px;
+  padding: 1rem 1.5rem;
+  gap: 0.25rem;
+  width: 100%;
+}
+
+.answer-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+.answer-word  { font-size: 2rem; font-weight: 800; color: var(--text); }
+.answer-english { font-size: 0.9rem; color: var(--text-muted); }
+.answer-pronunciation { font-size: 0.85rem; color: var(--accent); margin-top: 0.25rem; }
+
+/* ── Corner badge ────────────────────────────────────────────────────────── */
+.corner-badge {
+  position: absolute;
+  top: calc(var(--safe-top) + 1rem);
+  right: 1rem;
+  z-index: 30;
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ── Error screen ────────────────────────────────────────────────────────── */
+.error-screen {
+  text-align: center;
+  color: var(--text);
+  padding: 2rem;
+}
+.error-screen p:first-child { font-size: 1.5rem; margin-bottom: 0.5rem; }
+.error-hint { color: var(--text-muted); font-size: 0.95rem; }
+
+/* ── Animations ──────────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(40px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
