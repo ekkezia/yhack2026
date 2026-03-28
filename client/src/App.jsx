@@ -1,11 +1,17 @@
-import { useRef, useState, useCallback, useEffect } from 'react';
-import CameraView from './components/CameraView.jsx';
-import GameOverlay from './components/GameOverlay.jsx';
-import { useMotionDetection } from './hooks/useMotionDetection.js';
-import { detectAndScript, speak, checkAnswer, playBase64Audio } from './services/api.js';
+import { useRef, useState, useCallback, useEffect } from "react";
+import CameraView from "./components/CameraView.jsx";
+import GameOverlay from "./components/GameOverlay.jsx";
+import { useMotionDetection } from "./hooks/useMotionDetection.js";
+import {
+  detectAndScript,
+  speak,
+  checkAnswer,
+  playBase64Audio,
+} from "./services/api.js";
 
-const TARGET_LANGUAGE = 'Spanish'; // Change to any language (French, Japanese, etc.)
-const STILL_MS = 3000;             // Must match STILL_DURATION_MS in useMotionDetection
+const NATIVE_LANGUAGE = "English"; // Language the voice script is spoken in
+const TARGET_LANGUAGE = "Portuguese"; // Language the user is learning
+const STILL_MS = 3000; // Must match STILL_DURATION_MS in useMotionDetection
 
 /*
   Phase machine:
@@ -19,11 +25,12 @@ const STILL_MS = 3000;             // Must match STILL_DURATION_MS in useMotionD
 
 export default function App() {
   const videoRef = useRef(null);
-  const [phase, setPhase] = useState('idle');
+  const [phase, setPhase] = useState("idle");
   const [cameraError, setCameraError] = useState(null);
   const [stillProgress, setStillProgress] = useState(0);
   const [detection, setDetection] = useState(null);
   const [guessResult, setGuessResult] = useState(null);
+  const [isHandsFree, setIsHandsFree] = useState(false);
   const busyRef = useRef(false); // ref — motion callbacks always see the latest value
 
   // ── Motion-detection callbacks ────────────────────────────────────────────
@@ -39,36 +46,40 @@ export default function App() {
     if (busyRef.current) return;
     busyRef.current = true;
 
-    setPhase('scanning');
+    setPhase("scanning");
     setStillProgress(0);
 
     const imageBase64 = captureFrame(videoRef.current);
 
     try {
       // Single Gemini call: CV + script generation together for minimum latency
-      const result = await detectAndScript(imageBase64, TARGET_LANGUAGE);
+      const result = await detectAndScript(
+        imageBase64,
+        TARGET_LANGUAGE,
+        NATIVE_LANGUAGE,
+      );
 
       if (!result.object) {
         // Nothing useful found — resume watching
         busyRef.current = false;
-        setPhase('watching');
+        setPhase("watching");
         return;
       }
 
       setDetection(result);
-      setPhase('speaking');
+      setPhase("speaking");
 
       // Fetch audio and play it
       const { audioBase64, mimeType } = await speak(result.script);
       await playBase64Audio(audioBase64, mimeType);
 
-      setPhase('guessing');
+      setPhase("guessing");
     } catch (err) {
-      console.error('Game error:', err);
+      console.error("Game error:", err);
       busyRef.current = false;
-      setPhase('watching');
+      setPhase("watching");
     }
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { startLoop, stopLoop, captureFrame } = useMotionDetection({
     onMotion: handleMotion,
@@ -78,7 +89,7 @@ export default function App() {
 
   // ── Start / stop loop with phase ──────────────────────────────────────────
   useEffect(() => {
-    if (phase === 'watching' && videoRef.current) {
+    if (phase === "watching" && videoRef.current) {
       startLoop(videoRef.current, 200);
     } else {
       stopLoop();
@@ -87,33 +98,41 @@ export default function App() {
 
   // ── Camera ready ──────────────────────────────────────────────────────────
   const handleCameraReady = useCallback(() => {
-    setPhase('watching');
+    setPhase("watching");
   }, []);
 
   // ── User actions ──────────────────────────────────────────────────────────
   const handleGuess = useCallback(
     async (guess) => {
-      setPhase('result');
+      setPhase("result");
       try {
-        const result = await checkAnswer(guess, detection.object, TARGET_LANGUAGE);
+        const result = await checkAnswer(
+          guess,
+          detection.object,
+          TARGET_LANGUAGE,
+          NATIVE_LANGUAGE,
+        );
         setGuessResult(result);
       } catch {
-        setGuessResult({ correct: false, feedback: 'Could not check — try again!' });
+        setGuessResult({
+          correct: false,
+          feedback: "Could not check — try again!",
+        });
       }
     },
-    [detection]
+    [detection],
   );
 
   const handleSkip = useCallback(() => {
     setGuessResult({ correct: false, feedback: "No worries — now you know!" });
-    setPhase('result');
+    setPhase("result");
   }, []);
 
   const handlePlayAgain = useCallback(() => {
     setDetection(null);
     setGuessResult(null);
     busyRef.current = false;
-    setPhase('watching');
+    setPhase("watching");
   }, []);
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -126,13 +145,18 @@ export default function App() {
         </div>
       ) : (
         <>
-          <CameraView ref={videoRef} onReady={handleCameraReady} onError={setCameraError} />
+          <CameraView
+            ref={videoRef}
+            onReady={handleCameraReady}
+            onError={setCameraError}
+          />
 
-          {phase === 'idle' && (
+          {phase === "idle" && (
             <div className="splash">
               <h1 className="splash-title">LinguaLens</h1>
               <p className="splash-sub">
-                Point your camera at the world.<br />
+                Point your camera at the world.
+                <br />
                 Hold still — we'll find something to learn.
               </p>
             </div>
@@ -147,10 +171,35 @@ export default function App() {
             onSkip={handleSkip}
             onPlayAgain={handlePlayAgain}
             targetLanguage={TARGET_LANGUAGE}
+            isHandsFree={isHandsFree}
           />
 
-          {(phase === 'watching' || phase === 'scanning') && (
-            <div className="corner-badge">🌍 {TARGET_LANGUAGE}</div>
+          {(phase === "watching" || phase === "scanning") && (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(var(--safe-top) + 1rem)",
+                right: "1rem",
+                zIndex: 30,
+                display: "flex",
+                gap: "0.5rem",
+              }}
+            >
+              <div className="corner-badge" style={{ position: "static" }}>
+                🌍 {TARGET_LANGUAGE}
+              </div>
+              <button
+                className="corner-badge"
+                style={{
+                  position: "static",
+                  cursor: "pointer",
+                  background: isHandsFree ? "var(--accent)" : "var(--surface)",
+                }}
+                onClick={() => setIsHandsFree((prev) => !prev)}
+              >
+                {isHandsFree ? "🎙️ Hands-free" : "⌨️ Typing"}
+              </button>
+            </div>
           )}
         </>
       )}
