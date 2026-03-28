@@ -32,11 +32,11 @@ export async function detectAndScript(
 }
 
 // Send script text → get base64 MP3 audio from ElevenLabs via Lava
-export async function speak(text) {
+export async function speak(text, voiceId = null, language = null) {
   const res = await fetch(`${BASE}/speak`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, voiceId, language }),
   });
   return parseResponse(res, "speak");
   // Returns: { audioBase64, mimeType }

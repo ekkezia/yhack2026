@@ -449,11 +449,21 @@ body,
     filter: brightness(0.8);
 }
 
+/* Vibrate animation for Accept button */
+@keyframes vibrate-btn {
+  0% { transform: translateX(0); }
+  20% { transform: translateX(-2px); }
+  40% { transform: translateX(2px); }
+  60% { transform: translateX(-2px); }
+  80% { transform: translateX(2px); }
+  100% { transform: translateX(0); }
+}
+
 .ios-btn-accept {
     background: #34c759;
     color: white;
     box-shadow: 0 4px 20px rgba(52, 199, 89, 0.4);
-    animation: pulseGreen 2s infinite;
+    animation: vibrate-btn 0.2s linear infinite alternate;
 }
 
 .ios-btn-decline {
@@ -567,4 +577,201 @@ body,
     cursor: pointer;
     margin: 0 auto;
     box-shadow: 0 4px 15px rgba(255, 59, 48, 0.3);
+}
+
+/* ── FaceTime-style active video call UI ─────────────────────────────────── */
+.facetime-active-call {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    color: white;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+}
+
+/* Top header: caller name + timer */
+.facetime-header {
+    position: absolute;
+    top: calc(var(--safe-top) + 3rem);
+    left: 0;
+    right: 0;
+    text-align: center;
+    z-index: 2;
+}
+
+.facetime-caller-name {
+    font-size: 1.4rem;
+    font-weight: 400;
+    letter-spacing: 0.01em;
+    text-shadow: 0 1px 6px rgba(0,0,0,0.7);
+}
+
+.facetime-caller-status {
+    font-size: 0.95rem;
+    color: rgba(255,255,255,0.75);
+    margin-top: 2px;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+}
+
+/* PiP thumbnail — top right, caller's "face" */
+.facetime-pip {
+    position: absolute;
+    top: calc(var(--safe-top) + 1rem);
+    right: 1rem;
+    width: 110px;
+    height: 150px;
+    border-radius: 14px;
+    background: #2c2c2e;
+    overflow: hidden;
+    z-index: 3;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    border: 2px solid rgba(255,255,255,0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.facetime-pip-avatar {
+    font-size: 3rem;
+    opacity: 0.5;
+}
+
+/* Mid status pills */
+.facetime-status {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.facetime-status-pill {
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: white;
+    padding: 6px 16px;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    text-align: center;
+}
+
+.facetime-skip-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    pointer-events: auto;
+}
+
+.facetime-skip-btn {
+    background: rgba(255,255,255,0.18);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.25);
+    color: white;
+    padding: 6px 18px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+/* Bottom control bar */
+.facetime-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 1.25rem 1.5rem calc(var(--safe-bottom) + 1.5rem);
+    background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    z-index: 2;
+}
+
+/* Row of 4 circle buttons */
+.facetime-btn-row {
+    display: flex;
+    gap: 2rem;
+    justify-content: center;
+    align-items: flex-end;
+}
+
+.facetime-btn-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.facetime-ctrl-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: none;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+}
+
+.facetime-ctrl-btn:active {
+    transform: scale(0.9);
+    background: rgba(255,255,255,0.35);
+}
+
+.facetime-ctrl-end {
+    background: #ff3b30;
+    box-shadow: 0 4px 14px rgba(255,59,48,0.45);
+}
+
+.facetime-ctrl-end:active {
+    background: #d9342a;
+}
+
+.facetime-btn-label {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.9);
+    font-weight: 400;
+}
+
+/* Row of 2 pill buttons */
+.facetime-pill-row {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.facetime-pill-btn {
+    display: flex;
+    align-items: center;
+    background: rgba(255,255,255,0.18);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: none;
+    color: white;
+    padding: 9px 18px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.facetime-pill-btn:active {
+    background: rgba(255,255,255,0.3);
 }

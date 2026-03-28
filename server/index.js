@@ -103,10 +103,18 @@ If no clear object is found, return: { "object": null }`;
 // ─── POST /api/speak ──────────────────────────────────────────────────────────
 // Sends script text to ElevenLabs via Lava, returns audio as base64.
 app.post("/api/speak", async (req, res) => {
-  const { text } = req.body;
+  const { text, voiceId: customVoiceId, language } = req.body;
   if (!text) return res.status(400).json({ error: "text required" });
 
-  const voiceId = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM";
+  const targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese";
+  const isTargetLanguage =
+    language &&
+    language.trim().toLowerCase() === targetLanguage.trim().toLowerCase();
+  const voiceId =
+    customVoiceId ||
+    (isTargetLanguage ? "e06XicPETIbfUaeHM9zH" : null) ||
+    process.env.ELEVENLABS_VOICE_ID ||
+    "21m00Tcm4TlvDq8ikWAM";
   const elUrl = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
 
   try {
@@ -114,7 +122,7 @@ app.post("/api/speak", async (req, res) => {
       elUrl,
       {
         text,
-        model_id: "eleven_turbo_v2",
+        model_id: "eleven_multilingual_v2",
         voice_settings: { stability: 0.5, similarity_boost: 0.75 },
       },
       { "xi-api-key": process.env.ELEVENLABS_API_KEY },
