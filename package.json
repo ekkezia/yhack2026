@@ -3,8 +3,11 @@
   "private": true,
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:with-cv": "concurrently \"npm run dev:server\" \"npm run dev:client\" \"npm run dev:cv\"",
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",
+    "dev:cv": "bash cv_server/run_server.sh",
+    "install:cv": "bash cv_server/setup_venv.sh",
     "install:all": "npm install && npm --prefix server install && npm --prefix client install",
     "build": "npm --prefix client run build",
     "start": "npm --prefix server start"

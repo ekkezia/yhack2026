@@ -4,7 +4,7 @@ LinguaLens is a mobile-first web application that turns the physical world into 
 
 ## 🏗 Project Architecture
 
-The project is structured as a monorepo with a decoupled Client and Server.
+The project is structured as a monorepo with decoupled services.
 
 ### 1. Server (`/server`)
 - **Runtime:** Node.js + Express (CommonJS).
@@ -23,6 +23,12 @@ The project is structured as a monorepo with a decoupled Client and Server.
     - `GameOverlay.jsx`: The UI layer handling the "Game Loop" phases.
     - `useMotionDetection.js`: A custom hook that analyzes the video stream for pixel-level changes. It triggers the "Scan" event only when the user holds the camera still for a set duration (3 seconds).
 - **API Services:** `client/src/services/api.js` centralizes fetch calls to the server.
+
+### 3. CV Server (`/cv_server`) (Optional, Python)
+- **Runtime:** Python + Flask + Ultralytics YOLO.
+- **Purpose:** Real-time object detection without consuming Gemini tokens.
+- **Port:** `http://localhost:8001`
+- **Flow:** Client tries YOLO (`/cvapi/detect`) first, then falls back to Node/Gemini CV if YOLO is unavailable.
 
 ## 🔄 The Game Loop (State Machine)
 
@@ -63,6 +69,12 @@ Run the helper script from the root:
 npm run install:all
 ```
 
+Optional (for YOLO CV server):
+```bash
+npm run install:cv
+```
+This creates and uses `cv_server/.venv` automatically (so no system Python install needed).
+
 ### Running Locally
 ```bash
 npm run dev
@@ -70,6 +82,13 @@ npm run dev
 - Client runs on: `http://localhost:5173`
 - Server runs on: `http://localhost:3001`
 - The Vite config is pre-configured with a proxy to route `/api` requests to the Node server.
+
+To run client + Node server + YOLO CV server together:
+```bash
+npm run dev:with-cv
+```
+This also enables proxying `/cvapi` to `http://localhost:8001`.
+On first start, YOLO may take a moment to download model weights.
 
 ### Remote Access (ngrok)
 To test on mobile devices, use ngrok to tunnel the Vite port. The `vite.config.js` is configured with `allowedHosts: true` and `host: true` to support external tunneling without Host header collisions.

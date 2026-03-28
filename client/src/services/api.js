@@ -1,4 +1,6 @@
 const BASE = "/api";
+const CV_BASE = import.meta.env.VITE_CV_API_BASE || "/cvapi";
+let hasWarnedYoloFallback = false;
 
 async function parseResponse(res, endpoint) {
   const text = await res.text();
@@ -106,6 +108,112 @@ export async function phoneReply(
   return parseResponse(res, "phone-reply");
 }
 
+// Ongoing friend commentary while user searches
+export async function phoneYap({
+  friendName,
+  targetObject,
+  targetObjectTranslated,
+  gameMode,
+  chosenLanguage,
+  visibleObjects = [],
+  focusObject = "",
+  noObjectRounds = 0,
+  targetLanguage = "Portuguese",
+  nativeLanguage = "English",
+}) {
+  const res = await fetch(`${BASE}/phone-yap`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      friendName,
+      targetObject,
+      targetObjectTranslated,
+      gameMode,
+      chosenLanguage,
+      visibleObjects,
+      focusObject,
+      noObjectRounds,
+      targetLanguage,
+      nativeLanguage,
+    }),
+  });
+  return parseResponse(res, "phone-yap");
+}
+
+// User interruption handling while searching
+export async function phoneInterrupt({
+  transcript,
+  friendName,
+  targetObject,
+  targetObjectTranslated,
+  gameMode,
+  chosenLanguage,
+  visibleObjects = [],
+  targetLanguage = "Portuguese",
+  nativeLanguage = "English",
+}) {
+  const res = await fetch(`${BASE}/phone-interrupt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      transcript,
+      friendName,
+      targetObject,
+      targetObjectTranslated,
+      gameMode,
+      chosenLanguage,
+      visibleObjects,
+      targetLanguage,
+      nativeLanguage,
+    }),
+  });
+  return parseResponse(res, "phone-interrupt");
+}
+
+// English mode: ask user for Portuguese word of a detected object
+export async function phoneEnglishPrompt({
+  friendName,
+  objectName,
+  targetLanguage = "Portuguese",
+  nativeLanguage = "English",
+}) {
+  const res = await fetch(`${BASE}/phone-english-prompt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      friendName,
+      objectName,
+      targetLanguage,
+      nativeLanguage,
+    }),
+  });
+  return parseResponse(res, "phone-english-prompt");
+}
+
+// English mode: check user's Portuguese guess and end call with correction + bye
+export async function phoneEnglishEvaluate({
+  friendName,
+  objectName,
+  objectTranslated,
+  guess,
+  targetLanguage = "Portuguese",
+  nativeLanguage = "English",
+}) {
+  const res = await fetch(`${BASE}/phone-english-evaluate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      friendName,
+      objectName,
+      objectTranslated,
+      guess,
+      targetLanguage,
+      nativeLanguage,
+    }),
+  });
+  return parseResponse(res, "phone-english-evaluate");
+}
+
 // Phone call struggle: get script when user struggles to find the object
 export async function phoneStruggle(
   friendName,
@@ -152,12 +260,34 @@ export async function phoneFound(
   return parseResponse(res, "phone-found");
 }
 
-// Check CV: verify if the target object is in the camera frame
-export async function phoneCheckCv(imageBase64, targetObject) {
+async function yoloCheckCv(imageBase64, targetObject) {
+  const res = await fetch(`${CV_BASE}/detect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ imageBase64, targetObject }),
+  });
+  return parseResponse(res, "yolo-detect");
+}
+
+async function geminiCheckCv(imageBase64, targetObject) {
   const res = await fetch(`${BASE}/phone-check-cv`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ imageBase64, targetObject }),
   });
   return parseResponse(res, "phone-check-cv");
+}
+
+// Check CV: use YOLO server first, then fall back to Gemini CV route
+export async function phoneCheckCv(imageBase64, targetObject) {
+  try {
+    const yolo = await yoloCheckCv(imageBase64, targetObject);
+    return yolo;
+  } catch (yoloErr) {
+    if (!hasWarnedYoloFallback) {
+      console.warn("YOLO CV unavailable, falling back to Gemini CV:", yoloErr);
+      hasWarnedYoloFallback = true;
+    }
+    return geminiCheckCv(imageBase64, targetObject);
+  }
 }

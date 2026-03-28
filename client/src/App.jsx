@@ -4,6 +4,10 @@ import {
   speak,
   phoneStart,
   phoneReply,
+  phoneYap,
+  phoneInterrupt,
+  phoneEnglishPrompt,
+  phoneEnglishEvaluate,
   phoneStruggle,
   phoneFound,
   phoneCheckCv,
@@ -11,6 +15,48 @@ import {
 
 const NATIVE_LANGUAGE = "English";
 const TARGET_LANGUAGE = "Portuguese";
+const LEARNED_WORDS_STORAGE_KEY = "lingualens.learned_words_v1";
+const ENGLISH_PRACTICE_MODE = "english_practice";
+const FIND_REQUESTED_MODE = "find_requested";
+
+function normText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isLikelyConfusionText(text) {
+  const t = normText(text);
+  if (!t) return false;
+  const signals = [
+    "dont understand",
+    "do not understand",
+    "i dont understand",
+    "i do not understand",
+    "i dont get it",
+    "confused",
+    "what do you mean",
+    "nao entendo",
+    "nao percebo",
+    "nao sei",
+    "nao entendi",
+    "nao compreendo",
+    "nao estou a perceber",
+    "nao to entendendo",
+  ];
+  return signals.some((s) => t.includes(s));
+}
+
+function pickPracticeObjectName(detections = []) {
+  const ignored = new Set(["person", "face", "human"]);
+  const names = Array.isArray(detections)
+    ? detections.map((d) => d?.name).filter(Boolean)
+    : [];
+  const preferred = names.find((name) => !ignored.has(normText(name)));
+  return preferred || names[0] || "";
+}
 
 function captureFrame(videoEl, quality = 0.8) {
   if (!videoEl) return null;
@@ -56,6 +102,8 @@ export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [audioPrimed, setAudioPrimed] = useState(false);
+  const [cvDebug, setCvDebug] = useState(null);
+  const [learnedWords, setLearnedWords] = useState([]);
 
   const isSearchingRef = useRef(false);
   const searchStartTimeRef = useRef(0);
@@ -63,6 +111,11 @@ export default function App() {
   const struggledRef = useRef(false);
   const audioPrimedRef = useRef(false);
   const unlockingRef = useRef(false);
+  const lastYapAtRef = useRef(0);
+  const noObjectRoundsRef = useRef(0);
+  const interruptBusyRef = useRef(false);
+  const lastInterruptAtRef = useRef(0);
+  const englishRoundBusyRef = useRef(false);
 
   const ensureAudioElement = useCallback(() => {
     if (!audioRef.current) {
@@ -165,13 +218,57 @@ export default function App() {
     playAudioSource,
   ]);
 
-  const endCall = () => {
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(LEARNED_WORDS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setLearnedWords(parsed.filter((w) => typeof w === "string"));
+      }
+    } catch (err) {
+      console.warn("Failed to load learned words:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        LEARNED_WORDS_STORAGE_KEY,
+        JSON.stringify(learnedWords),
+      );
+    } catch (err) {
+      console.warn("Failed to persist learned words:", err);
+    }
+  }, [learnedWords]);
+
+  const addLearnedWord = useCallback((word) => {
+    if (!word || typeof word !== "string") return;
+    const trimmed = word.trim();
+    if (!trimmed) return;
+
+    setLearnedWords((prev) => {
+      const exists = prev.some(
+        (w) => w.toLowerCase() === trimmed.toLowerCase(),
+      );
+      if (exists) return prev;
+      return [...prev, trimmed];
+    });
+  }, []);
+
+  const endCall = useCallback(() => {
     stopAudio();
     setPhase("idle");
+    setUnlocked(false);
+    setCallData(null);
     setIncomingCallData(null);
+    setCvDebug(null);
+    setTranscript("");
+    setCallDuration(0);
     isSearchingRef.current = false;
+    noObjectRoundsRef.current = 0;
     clearTimeout(searchIntervalRef.current);
-  };
+  }, [stopAudio]);
 
   useEffect(() => {
     if (!unlocked || phase !== "ringing") return;
@@ -204,9 +301,14 @@ export default function App() {
       "listening_preference",
       "processing_preference",
       "speaking_task",
+      "speaking_object_prompt",
+      "listening_object_guess",
+      "processing_object_guess",
       "searching",
       "speaking_struggle",
       "speaking_found",
+      "speaking_yap",
+      "speaking_interrupt",
     ].includes(phase);
 
     if (phase === "ringing" && audioPrimed) {
@@ -296,6 +398,14 @@ export default function App() {
         setCallData((prev) => ({
           ...prev,
           chosenLanguage: replyData.chosenLanguage,
+          gameMode:
+            replyData.gameMode ||
+            (normText(replyData.chosenLanguage) === normText(NATIVE_LANGUAGE)
+              ? ENGLISH_PRACTICE_MODE
+              : FIND_REQUESTED_MODE),
+          practiceObject: null,
+          practiceObjectTranslated: null,
+          awaitingPracticeGuess: false,
         }));
 
         const { audioBase64, mimeType } = await speak(replyData.script);
@@ -309,6 +419,213 @@ export default function App() {
       }
     },
     [callData, playAudioSource],
+  );
+
+  const handleEnglishPracticePrompt = useCallback(
+    async (objectName) => {
+      if (!callData || !objectName || englishRoundBusyRef.current) return false;
+
+      englishRoundBusyRef.current = true;
+      setPhase("speaking_object_prompt");
+      try {
+        const promptData = await phoneEnglishPrompt({
+          friendName: callData.friendName,
+          objectName,
+          targetLanguage: TARGET_LANGUAGE,
+          nativeLanguage: NATIVE_LANGUAGE,
+        });
+
+        const objectTranslated =
+          promptData?.objectTranslated || objectName;
+        setCallData((prev) => ({
+          ...prev,
+          practiceObject: objectName,
+          practiceObjectTranslated: objectTranslated,
+          awaitingPracticeGuess: true,
+        }));
+        addLearnedWord(objectTranslated);
+
+        const { audioBase64, mimeType } = await speak(
+          promptData?.script ||
+            `I can see a ${objectName}. How do you say ${objectName} in ${TARGET_LANGUAGE}?`,
+          null,
+          NATIVE_LANGUAGE,
+        );
+        await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
+          onEnded: () => setPhase("listening_object_guess"),
+        });
+        return true;
+      } catch (err) {
+        console.error("English prompt error:", err);
+        setPhase("searching");
+        return false;
+      } finally {
+        englishRoundBusyRef.current = false;
+      }
+    },
+    [callData, playAudioSource, addLearnedWord, endCall],
+  );
+
+  const handleEnglishPracticeGuess = useCallback(
+    async (spokenGuess) => {
+      if (!callData?.practiceObject || !callData?.practiceObjectTranslated) {
+        return;
+      }
+
+      setTranscript(spokenGuess || "");
+      setPhase("processing_object_guess");
+      try {
+        const evalData = await phoneEnglishEvaluate({
+          friendName: callData.friendName,
+          objectName: callData.practiceObject,
+          objectTranslated: callData.practiceObjectTranslated,
+          guess: spokenGuess || "",
+          targetLanguage: TARGET_LANGUAGE,
+          nativeLanguage: NATIVE_LANGUAGE,
+        });
+
+        addLearnedWord(callData.practiceObjectTranslated);
+        setCallData((prev) => ({ ...prev, awaitingPracticeGuess: false }));
+
+        const { audioBase64, mimeType } = await speak(
+          evalData?.finalScript ||
+            `${callData.practiceObject} in ${TARGET_LANGUAGE} is "${callData.practiceObjectTranslated}". Thanks for helping me, bye!`,
+          null,
+          NATIVE_LANGUAGE,
+        );
+        setPhase("speaking_found");
+        await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
+          onEnded: () => endCall(),
+        });
+      } catch (err) {
+        console.error("English evaluate error:", err);
+        try {
+          const fallback =
+            `Thanks for helping me. ${callData.practiceObject} in ${TARGET_LANGUAGE} is "${callData.practiceObjectTranslated}". Bye!`;
+          const { audioBase64, mimeType } = await speak(
+            fallback,
+            null,
+            NATIVE_LANGUAGE,
+          );
+          await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
+            onEnded: () => endCall(),
+          });
+        } catch (speakErr) {
+          console.error("English evaluate fallback error:", speakErr);
+          endCall();
+        }
+      }
+    },
+    [callData, playAudioSource, addLearnedWord],
+  );
+
+  const handleSearchYap = useCallback(
+    async (visibleObjects, focusObject = "") => {
+      if (!callData) return false;
+
+      setPhase("speaking_yap");
+      try {
+        const yData = await phoneYap({
+          friendName: callData.friendName,
+          targetObject: callData.targetObject,
+          targetObjectTranslated: callData.targetObjectTranslated,
+          gameMode: callData.gameMode || FIND_REQUESTED_MODE,
+          chosenLanguage: callData.chosenLanguage,
+          visibleObjects,
+          focusObject,
+          noObjectRounds: noObjectRoundsRef.current,
+          targetLanguage: TARGET_LANGUAGE,
+          nativeLanguage: NATIVE_LANGUAGE,
+        });
+        if (yData?.teachingTranslation) {
+          addLearnedWord(yData.teachingTranslation);
+        }
+
+        const { audioBase64, mimeType } = await speak(
+          yData.script,
+          null,
+          callData.chosenLanguage || NATIVE_LANGUAGE,
+        );
+        await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
+          onEnded: () => setPhase("searching"),
+        });
+        return true;
+      } catch (err) {
+        console.error("Yap error:", err);
+        setPhase("searching");
+        return false;
+      }
+    },
+    [callData, playAudioSource, addLearnedWord],
+  );
+
+  const handleInterruption = useCallback(
+    async (spokenText) => {
+      if (!callData || !spokenText) return false;
+
+      const now = Date.now();
+      if (
+        interruptBusyRef.current ||
+        now - lastInterruptAtRef.current < 6000
+      ) {
+        return false;
+      }
+
+      interruptBusyRef.current = true;
+      lastInterruptAtRef.current = now;
+      setPhase("speaking_interrupt");
+
+      try {
+        const chosenIsTarget =
+          normText(callData.chosenLanguage) === normText(TARGET_LANGUAGE);
+        const inFindMode =
+          (callData.gameMode || FIND_REQUESTED_MODE) === FIND_REQUESTED_MODE;
+        if (inFindMode && chosenIsTarget && isLikelyConfusionText(spokenText)) {
+          const fallbackScript = `No worries. In ${TARGET_LANGUAGE}, ${callData.targetObject} is "${callData.targetObjectTranslated}". Thanks for helping me today, bye!`;
+          addLearnedWord(callData.targetObjectTranslated || callData.targetObject);
+          const { audioBase64, mimeType } = await speak(
+            fallbackScript,
+            null,
+            NATIVE_LANGUAGE,
+          );
+          await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
+            onEnded: () => endCall(),
+          });
+          return true;
+        }
+
+        const iData = await phoneInterrupt({
+          transcript: spokenText,
+          friendName: callData.friendName,
+          targetObject: callData.targetObject,
+          targetObjectTranslated: callData.targetObjectTranslated,
+          gameMode: callData.gameMode || FIND_REQUESTED_MODE,
+          chosenLanguage: callData.chosenLanguage,
+          visibleObjects: (cvDebug?.visibleObjectDetections || [])
+            .map((d) => d?.name)
+            .filter(Boolean),
+          targetLanguage: TARGET_LANGUAGE,
+          nativeLanguage: NATIVE_LANGUAGE,
+        });
+
+        const { audioBase64, mimeType } = await speak(
+          iData.script,
+          null,
+          callData.chosenLanguage || NATIVE_LANGUAGE,
+        );
+        await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
+          onEnded: () => setPhase("searching"),
+        });
+        return true;
+      } catch (err) {
+        console.error("Interruption error:", err);
+        setPhase("searching");
+        return false;
+      } finally {
+        interruptBusyRef.current = false;
+      }
+    },
+    [callData, cvDebug, playAudioSource, addLearnedWord, endCall],
   );
 
   useEffect(() => {
@@ -399,6 +716,83 @@ export default function App() {
     };
   }, [phase, processPreference]);
 
+  useEffect(() => {
+    if (phase !== "listening_object_guess") return;
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      void handleEnglishPracticeGuess("");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "pt-BR";
+    recognition.continuous = true;
+    recognition.interimResults = false;
+
+    let submitted = false;
+    let idleFinalizeTimer = null;
+    let noSpeechTimer = null;
+    const isActiveRef = { current: true };
+
+    const submitGuess = (text) => {
+      if (submitted) return;
+      submitted = true;
+      if (idleFinalizeTimer) clearTimeout(idleFinalizeTimer);
+      if (noSpeechTimer) clearTimeout(noSpeechTimer);
+      void handleEnglishPracticeGuess((text || "").trim());
+    };
+
+    recognition.onstart = () => {
+      setTranscript("");
+      setIsListening(true);
+      noSpeechTimer = setTimeout(() => submitGuess(""), 5500);
+    };
+    recognition.onresult = (event) => {
+      let spoken = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        if (event.results[i].isFinal) {
+          spoken = `${spoken} ${event.results[i][0].transcript}`.trim();
+        }
+      }
+      if (!spoken) return;
+      setTranscript(spoken);
+      if (idleFinalizeTimer) clearTimeout(idleFinalizeTimer);
+      idleFinalizeTimer = setTimeout(() => submitGuess(spoken), 700);
+    };
+    recognition.onerror = () => {
+      submitGuess("");
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+      if (
+        !submitted &&
+        isActiveRef.current &&
+        phase === "listening_object_guess"
+      ) {
+        try {
+          recognition.start();
+        } catch (e) {}
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch (e) {
+      submitGuess("");
+    }
+
+    return () => {
+      isActiveRef.current = false;
+      if (idleFinalizeTimer) clearTimeout(idleFinalizeTimer);
+      if (noSpeechTimer) clearTimeout(noSpeechTimer);
+      try {
+        recognition.stop();
+      } catch (e) {}
+    };
+  }, [phase, handleEnglishPracticeGuess]);
+
   const handleStruggle = useCallback(async () => {
     isSearchingRef.current = false;
     setPhase("speaking_struggle");
@@ -435,6 +829,7 @@ export default function App() {
         TARGET_LANGUAGE,
         NATIVE_LANGUAGE,
       );
+      addLearnedWord(callData.targetObjectTranslated || callData.targetObject);
 
       const { audioBase64, mimeType } = await speak(fData.script);
       await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
@@ -444,14 +839,16 @@ export default function App() {
       console.error(err);
       setPhase("done");
     }
-  }, [callData, playAudioSource]);
+  }, [callData, playAudioSource, addLearnedWord]);
 
   useEffect(() => {
-    if (phase !== "searching") return;
+    if (phase !== "searching" || !callData) return;
 
     isSearchingRef.current = true;
     searchStartTimeRef.current = Date.now();
     struggledRef.current = false;
+    noObjectRoundsRef.current = 0;
+    setCvDebug(null);
 
     const checkLoop = async () => {
       if (!isSearchingRef.current || !videoRef.current) return;
@@ -460,9 +857,83 @@ export default function App() {
       if (frame) {
         try {
           const cvRes = await phoneCheckCv(frame, callData.targetObject);
-          if (cvRes.found) {
+          const visibleObjectDetections = Array.isArray(
+            cvRes?.visibleObjectDetections,
+          )
+            ? cvRes.visibleObjectDetections
+            : [];
+          const visibleObjectNames = visibleObjectDetections
+            .map((d) => d?.name)
+            .filter(Boolean);
+          const focusObjectName = pickPracticeObjectName(
+            visibleObjectDetections,
+          );
+          const gameMode = callData.gameMode || FIND_REQUESTED_MODE;
+          const isEnglishPractice = gameMode === ENGLISH_PRACTICE_MODE;
+
+          if (visibleObjectNames.length === 0) {
+            noObjectRoundsRef.current += 1;
+          } else {
+            noObjectRoundsRef.current = 0;
+          }
+
+          setCvDebug({
+            modelUsed: cvRes?.modelUsed || "unknown",
+            found: Boolean(cvRes?.found),
+            confidence: cvRes?.confidence,
+            detectedObject: cvRes?.detectedObject,
+            targetBoundingBox:
+              gameMode === FIND_REQUESTED_MODE
+                ? cvRes?.targetBoundingBox || null
+                : null,
+            fallbackSceneUsed: Boolean(cvRes?.fallbackSceneUsed),
+            visibleObjectDetections,
+          });
+          console.log("[CV Check]", {
+            gameMode,
+            targetObject: callData.targetObject,
+            modelUsed: cvRes?.modelUsed,
+            found: cvRes?.found,
+            modelFound: cvRes?.modelFound,
+            confidence: cvRes?.confidence,
+            matchType: cvRes?.matchType,
+            detectedObject: cvRes?.detectedObject,
+            targetBoundingBox: cvRes?.targetBoundingBox,
+            evidence: cvRes?.evidence,
+            visibleObjects: cvRes?.visibleObjects,
+            visibleObjectDetections,
+            fallbackSceneUsed: cvRes?.fallbackSceneUsed,
+          });
+          if (!isEnglishPractice) {
+            if (cvRes.found) {
+              isSearchingRef.current = false;
+              handleFound();
+              return;
+            }
+          } else if (
+            !callData?.practiceObject &&
+            focusObjectName &&
+            !interruptBusyRef.current
+          ) {
             isSearchingRef.current = false;
-            handleFound();
+            clearTimeout(searchIntervalRef.current);
+            await handleEnglishPracticePrompt(focusObjectName);
+            return;
+          }
+
+          const isWrongVisible =
+            !!focusObjectName &&
+            normText(focusObjectName) !== normText(callData.targetObject);
+          const yapCooldownMs = isWrongVisible ? 5000 : 9000;
+          const shouldYap =
+            !callData?.awaitingPracticeGuess &&
+            Date.now() - lastYapAtRef.current > yapCooldownMs &&
+            !interruptBusyRef.current;
+          if (shouldYap) {
+            isSearchingRef.current = false;
+            clearTimeout(searchIntervalRef.current);
+            lastYapAtRef.current = Date.now();
+            await handleSearchYap(visibleObjectNames, focusObjectName);
             return;
           }
         } catch (e) {
@@ -472,9 +943,10 @@ export default function App() {
 
       const elapsed = Date.now() - searchStartTimeRef.current;
       if (
+        (callData.gameMode || FIND_REQUESTED_MODE) === FIND_REQUESTED_MODE &&
         elapsed > 15000 &&
         !struggledRef.current &&
-        callData.chosenLanguage === TARGET_LANGUAGE
+        normText(callData.chosenLanguage) === normText(TARGET_LANGUAGE)
       ) {
         struggledRef.current = true;
         handleStruggle();
@@ -491,7 +963,71 @@ export default function App() {
       isSearchingRef.current = false;
       clearTimeout(searchIntervalRef.current);
     };
-  }, [phase, callData, handleFound, handleStruggle]);
+  }, [
+    phase,
+    callData,
+    handleFound,
+    handleStruggle,
+    handleSearchYap,
+    handleEnglishPracticePrompt,
+  ]);
+
+  useEffect(() => {
+    if (phase !== "searching") return;
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    const recognition = new SpeechRecognition();
+    recognition.lang =
+      normText(callData?.chosenLanguage) === normText(TARGET_LANGUAGE)
+        ? "pt-BR"
+        : "en-US";
+    recognition.continuous = true;
+    recognition.interimResults = false;
+
+    let active = true;
+
+    recognition.onresult = (event) => {
+      let spoken = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        if (event.results[i].isFinal) {
+          spoken = `${spoken} ${event.results[i][0].transcript}`.trim();
+        }
+      }
+
+      if (spoken.length >= 3) {
+        void handleInterruption(spoken).then((handled) => {
+          if (handled) {
+            try {
+              recognition.stop();
+            } catch (e) {}
+          }
+        });
+      }
+    };
+
+    recognition.onerror = () => {};
+    recognition.onend = () => {
+      if (active && phase === "searching") {
+        try {
+          recognition.start();
+        } catch (e) {}
+      }
+    };
+
+    try {
+      recognition.start();
+    } catch (e) {}
+
+    return () => {
+      active = false;
+      try {
+        recognition.stop();
+      } catch (e) {}
+    };
+  }, [phase, handleInterruption, callData]);
 
   const isActiveCallPhase = [
     "connecting",
@@ -499,8 +1035,13 @@ export default function App() {
     "listening_preference",
     "processing_preference",
     "speaking_task",
+    "speaking_object_prompt",
+    "listening_object_guess",
+    "processing_object_guess",
     "speaking_struggle",
     "speaking_found",
+    "speaking_yap",
+    "speaking_interrupt",
     "error",
   ].includes(phase);
 
@@ -567,6 +1108,9 @@ export default function App() {
             9:41
           </div>
           <div style={{ fontSize: 18, opacity: 0.7, marginBottom: 40 }}>{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+          <div style={{ fontSize: 14, opacity: 0.72, marginBottom: 12 }}>
+            {`Learnt ${learnedWords.length ? learnedWords.slice(-3).join(", ") : "0"} words`}
+          </div>
           <div style={{ flex: 1 }} />
           <div style={{ marginBottom: 40, opacity: 0.8, fontSize: 20, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <span style={{ fontSize: 28, marginBottom: 8 }}>🔓</span>
@@ -578,7 +1122,6 @@ export default function App() {
               borderRadius: 3,
               background: "rgba(255,255,255,0.18)",
               boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
-              transform: `translateY(${Math.max(swipeDelta, -100)}px)`
             }} />
           </div>
         </div>
@@ -649,8 +1192,16 @@ export default function App() {
                     🎙️ Say: English or Portuguese
                   </span>
                 )}
+                {phase === "listening_object_guess" && (
+                  <span className="facetime-status-pill pulse">
+                    🎙️ Say the Portuguese word
+                  </span>
+                )}
                 {phase === "processing_preference" && (
                   <span className="facetime-status-pill">Thinking...</span>
+                )}
+                {phase === "processing_object_guess" && (
+                  <span className="facetime-status-pill">Checking your word...</span>
                 )}
                 {phase.startsWith("speaking") && (
                   <span className="facetime-status-pill pulse">🗣️ Speaking...</span>
@@ -661,7 +1212,12 @@ export default function App() {
                   </span>
                 )}
                 {transcript &&
-                  ["listening_preference", "processing_preference"].includes(phase) && (
+                  [
+                    "listening_preference",
+                    "processing_preference",
+                    "listening_object_guess",
+                    "processing_object_guess",
+                  ].includes(phase) && (
                   <span className="facetime-status-pill" style={{ marginTop: 6, fontSize: "0.85rem" }}>
                     "{transcript}"
                   </span>
@@ -741,7 +1297,9 @@ export default function App() {
                 style={{ textShadow: "0 2px 6px rgba(0,0,0,0.8)" }}
               >
                 <h2 className="ios-active-name" style={{ fontWeight: 600 }}>
-                  Find: {callData?.targetObject}
+                  {(callData?.gameMode || FIND_REQUESTED_MODE) === ENGLISH_PRACTICE_MODE
+                    ? `Practice: name nearby objects in ${TARGET_LANGUAGE}`
+                    : `Find: ${callData?.targetObject}`}
                 </h2>
                 <p
                   className="ios-active-time"
@@ -757,27 +1315,117 @@ export default function App() {
                 </div>
               </div>
 
+              {cvDebug && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(var(--safe-top) + 10px)",
+                    right: "12px",
+                    zIndex: 4,
+                    background: "rgba(0,0,0,0.6)",
+                    border: "1px solid rgba(255,255,255,0.24)",
+                    color: "white",
+                    fontSize: "0.75rem",
+                    padding: "5px 8px",
+                    borderRadius: "8px",
+                    textShadow: "none",
+                  }}
+                >
+                  {`Boxes: ${(cvDebug.visibleObjectDetections || []).length} • ${cvDebug.modelUsed}${cvDebug.fallbackSceneUsed ? " • scene-fallback" : ""}`}
+                </div>
+              )}
+
+              {(cvDebug?.targetBoundingBox ||
+                (cvDebug?.visibleObjectDetections || []).length > 0) && (
+                <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+                  {(cvDebug?.visibleObjectDetections || []).map((item, index) => {
+                    const box = item?.boundingBox;
+                    if (!box) return null;
+                    const labelY = Math.max(0, (box.y * 100) - 3);
+                    return (
+                      <div key={`${item?.name || "obj"}-${index}`}>
+                        <div
+                          style={{
+                            position: "absolute",
+                            left: `${box.x * 100}%`,
+                            top: `${box.y * 100}%`,
+                            width: `${box.width * 100}%`,
+                            height: `${box.height * 100}%`,
+                            border: "2px solid rgba(56,189,248,0.95)",
+                            borderRadius: "8px",
+                            boxShadow: "0 0 12px rgba(56,189,248,0.4)",
+                          }}
+                        />
+                        <div
+                          style={{
+                            position: "absolute",
+                            left: `${box.x * 100}%`,
+                            top: `${labelY}%`,
+                            transform: "translateY(-100%)",
+                            background: "rgba(8,47,73,0.78)",
+                            border: "1px solid rgba(56,189,248,0.8)",
+                            color: "#e0f2fe",
+                            fontSize: "0.72rem",
+                            padding: "3px 7px",
+                            borderRadius: "7px",
+                            textShadow: "none",
+                          }}
+                        >
+                          {`${item?.name || "object"}${
+                            Number.isFinite(Number(item?.confidence))
+                              ? ` ${Math.round(Number(item.confidence) * 100)}%`
+                              : ""
+                          }`}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {cvDebug?.targetBoundingBox && (
+                    <>
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: `${cvDebug.targetBoundingBox.x * 100}%`,
+                          top: `${cvDebug.targetBoundingBox.y * 100}%`,
+                          width: `${cvDebug.targetBoundingBox.width * 100}%`,
+                          height: `${cvDebug.targetBoundingBox.height * 100}%`,
+                          border: "3px solid #22c55e",
+                          borderRadius: "10px",
+                          boxShadow: "0 0 16px rgba(34,197,94,0.65)",
+                        }}
+                      />
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: `${cvDebug.targetBoundingBox.x * 100}%`,
+                          top: `${Math.max(0, (cvDebug.targetBoundingBox.y * 100) - 4)}%`,
+                          transform: "translateY(-100%)",
+                          background: "rgba(0,0,0,0.72)",
+                          border: "1px solid rgba(34,197,94,0.7)",
+                          color: "#dcfce7",
+                          fontSize: "0.78rem",
+                          padding: "4px 8px",
+                          borderRadius: "8px",
+                          textShadow: "none",
+                        }}
+                      >
+                        {`${cvDebug.detectedObject || "target"} (${Math.round((cvDebug.confidence || 0) * 100)}%) • ${cvDebug.modelUsed}`}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               <div
                 style={{
                   marginTop: "auto",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  gap: "1.5rem",
+                  gap: "1rem",
                 }}
               >
-                <button
-                  className="btn btn-ghost"
-                  onClick={handleFound}
-                  style={{
-                    background: "rgba(0,0,0,0.6)",
-                    color: "white",
-                    padding: "10px 20px",
-                    borderRadius: "20px",
-                  }}
-                >
-                  Bypass (Found it)
-                </button>
                 <button className="ios-btn-end" onClick={endCall}>
                   <PhoneIcon style={{ transform: "rotate(135deg)" }} />
                 </button>

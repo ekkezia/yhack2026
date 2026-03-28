@@ -2,5 +2,7 @@ node_modules/
 client/node_modules/
 server/node_modules/
 client/dist/
+cv_server/.venv/
+cv_server/*.pt
 .env
 *.local
