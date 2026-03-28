@@ -177,6 +177,244 @@ Respond ONLY with JSON: { "correct": true|false, "feedback": "short encouraging 
   }
 });
 
+// ─── POST /api/phone-start ────────────────────────────────────────────────────
+app.post("/api/phone-start", async (req, res) => {
+  const {
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
+  } = req.body;
+
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+
+  const prompt = `You are designing a script for an AI friend calling the user.
+Randomly choose a friend's name (e.g., Katy, Alex) and a common household object (e.g., keys, mug, shoe) the user must find.
+Write an opening line for a phone call in ${nativeLanguage} saying something like: "Hey long time no see, it's [Name]. Do you prefer I talk in ${nativeLanguage} or ${targetLanguage}?" Make it friendly and natural.
+
+Respond ONLY with valid JSON (no markdown fences):
+{
+  "friendName": "Friend's name",
+  "targetObject": "object name in ${nativeLanguage}",
+  "targetObjectTranslated": "object name in ${targetLanguage}",
+  "script": "opening script"
+}`;
+
+  try {
+    const geminiRes = await lavaForward(geminiUrl, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.8, maxOutputTokens: 256 },
+    });
+
+    const data = await geminiRes.json();
+    let text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) throw new Error("Empty Gemini response");
+
+    if (text.startsWith("```")) {
+      text = text
+        .replace(/^```[a-zA-Z]*\s*/, "")
+        .replace(/\s*```$/, "")
+        .trim();
+    }
+
+    res.json(JSON.parse(text));
+  } catch (err) {
+    console.error("phone-start error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/phone-reply ────────────────────────────────────────────────────
+app.post("/api/phone-reply", async (req, res) => {
+  const {
+    transcript,
+    friendName,
+    targetObject,
+    targetObjectTranslated,
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
+  } = req.body;
+
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+
+  const prompt = `The user was asked whether they prefer to speak in ${nativeLanguage} or ${targetLanguage}.
+Their reply was: "${transcript}"
+1. Determine which language they chose (default to ${nativeLanguage} if unsure).
+2. Write a follow-up script from the friend "${friendName}" in the CHOSEN language.
+The script should say something like: "I need help from you, I left my [object] with you, can you help me find it? I need it asap."
+Use "${targetObject}" if the chosen language is ${nativeLanguage}, and "${targetObjectTranslated}" if the chosen language is ${targetLanguage}.
+
+Respond ONLY with valid JSON (no markdown fences):
+{
+  "chosenLanguage": "the language they picked (${nativeLanguage} or ${targetLanguage})",
+  "script": "the script asking to find the object"
+}`;
+
+  try {
+    const geminiRes = await lavaForward(geminiUrl, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 256 },
+    });
+
+    const data = await geminiRes.json();
+    let text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) throw new Error("Empty Gemini response");
+
+    if (text.startsWith("```")) {
+      text = text
+        .replace(/^```[a-zA-Z]*\s*/, "")
+        .replace(/\s*```$/, "")
+        .trim();
+    }
+
+    res.json(JSON.parse(text));
+  } catch (err) {
+    console.error("phone-reply error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/phone-struggle ─────────────────────────────────────────────────
+app.post("/api/phone-struggle", async (req, res) => {
+  const {
+    friendName,
+    targetObject,
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
+  } = req.body;
+
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+
+  const prompt = `The user is struggling to find the object in ${targetLanguage}.
+Write a script from ${friendName} in ${nativeLanguage} saying something like: "Oh sorry, you probably don't really understand me, I'll speak it in ${nativeLanguage}. I need help to find this ${targetObject}. Can you help?"
+
+Respond ONLY with valid JSON (no markdown fences):
+{
+  "script": "the script in ${nativeLanguage}"
+}`;
+
+  try {
+    const geminiRes = await lavaForward(geminiUrl, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 256 },
+    });
+
+    const data = await geminiRes.json();
+    let text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) throw new Error("Empty Gemini response");
+
+    if (text.startsWith("```")) {
+      text = text
+        .replace(/^```[a-zA-Z]*\s*/, "")
+        .replace(/\s*```$/, "")
+        .trim();
+    }
+
+    res.json(JSON.parse(text));
+  } catch (err) {
+    console.error("phone-struggle error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/phone-found ────────────────────────────────────────────────────
+app.post("/api/phone-found", async (req, res) => {
+  const {
+    friendName,
+    targetObject,
+    targetObjectTranslated,
+    chosenLanguage,
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
+    struggled = false,
+  } = req.body;
+
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+
+  const prompt = `The user successfully found the object.
+If the chosen language was ${nativeLanguage} (or if struggled=true):
+Write a script from ${friendName} saying: "Nice, thank you! Just to let you know the ${targetLanguage} word for this object is ${targetObjectTranslated}, so next time you know what I need from you!"
+
+If the chosen language was ${targetLanguage} and struggled=false:
+Write a script in ${targetLanguage} saying: "Nice, thanks so much!" and complimenting them.
+
+The chosen language was ${chosenLanguage} and struggled is ${struggled}.
+
+Respond ONLY with valid JSON (no markdown fences):
+{
+  "script": "the final success script"
+}`;
+
+  try {
+    const geminiRes = await lavaForward(geminiUrl, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 256 },
+    });
+
+    const data = await geminiRes.json();
+    let text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) throw new Error("Empty Gemini response");
+
+    if (text.startsWith("```")) {
+      text = text
+        .replace(/^```[a-zA-Z]*\s*/, "")
+        .replace(/\s*```$/, "")
+        .trim();
+    }
+
+    res.json(JSON.parse(text));
+  } catch (err) {
+    console.error("phone-found error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/phone-check-cv ─────────────────────────────────────────────────
+app.post("/api/phone-check-cv", async (req, res) => {
+  const { imageBase64, targetObject } = req.body;
+  if (!imageBase64 || !targetObject) {
+    return res
+      .status(400)
+      .json({ error: "imageBase64 and targetObject required" });
+  }
+
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const prompt = `Look at this image from a mobile user's perspective.
+Is there a clearly visible "${targetObject}" in it?
+Respond ONLY with valid JSON (no markdown fences):
+{
+  "found": true|false
+}`;
+
+  try {
+    const geminiRes = await lavaForward(geminiUrl, {
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: "image/jpeg", data: imageBase64 } },
+          ],
+        },
+      ],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 64 },
+    });
+
+    const data = await geminiRes.json();
+    let text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) throw new Error("Empty Gemini response");
+
+    if (text.startsWith("```")) {
+      text = text
+        .replace(/^```[a-zA-Z]*\s*/, "")
+        .replace(/\s*```$/, "")
+        .trim();
+    }
+
+    res.json(JSON.parse(text));
+  } catch (err) {
+    console.error("phone-check-cv error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () =>
   console.log(`Server running on http://localhost:${PORT}`),
 );
