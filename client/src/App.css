@@ -1,3 +1,26 @@
+/* ── Reset Language Button ─────────────────────────────────────────────── */
+.reset-language-btn {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;
+    outline: none;
+    border: none;
+    background: rgba(255,255,255,0.13);
+    color: #fff;
+    font-weight: 500;
+    font-size: 13px;
+    border-radius: 14px;
+    padding: 5px 14px;
+    box-shadow: 0 1px 6px 0 rgba(0,0,0,0.10);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    letter-spacing: 0.1px;
+    cursor: pointer;
+    z-index: 2000;
+    transition: background 0.18s;
+    display: block;
+}
+.reset-language-btn:hover {
+    background: rgba(255,255,255,0.22);
+}
 /* ── Reset & base ────────────────────────────────────────────────────────── */
 *,
 *::before,

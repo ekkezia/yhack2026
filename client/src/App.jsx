@@ -1494,6 +1494,41 @@ export default function App() {
 
   // ── Boot: Hello screen ──────────────────────────────────────────────────────
   if (bootPhase === "hello") {
+    // Check for previous language progress to show SIMP card
+    let prevLangCard = null;
+    if (typeof window !== "undefined" && window.__SIMP_PREV_LANG && window.__SIMP_PREV_LANG.lang && Array.isArray(window.__SIMP_PREV_LANG.words)) {
+      const prev = window.__SIMP_PREV_LANG;
+      prevLangCard = (
+        <div style={{
+          margin: "24px auto 0 auto",
+          background: "rgba(255,255,255,0.13)",
+          borderRadius: 18,
+          padding: "18px 22px 14px 22px",
+          maxWidth: 340,
+          boxShadow: "0 2px 12px 0 rgba(0,0,0,0.10)",
+          color: "#fff",
+          textAlign: "center",
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif",
+        }}>
+          <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>SIMP in {prev.lang}</div>
+          <div style={{ fontSize: 14, opacity: 0.7, marginBottom: 8 }}>Words learnt: {prev.words.length}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
+            {prev.words.slice(-8).map((w, i) => (
+              <span key={i} style={{
+                background: "rgba(255,255,255,0.18)",
+                borderRadius: 8,
+                padding: "3px 9px",
+                fontSize: 13,
+                marginBottom: 2,
+                color: "#fff",
+                fontWeight: 500,
+                letterSpacing: 0.1,
+              }}>{w.targetWord}</span>
+            ))}
+          </div>
+        </div>
+      );
+    }
     return (
       <div
         className={`boot-screen${bootFadingOut ? " boot-fade-out" : ""}`}
@@ -1501,6 +1536,8 @@ export default function App() {
           if (bootFadingOut) {
             setBootFadingOut(false);
             setBootPhase("language");
+            // Clear prev lang card after showing once
+            if (typeof window !== "undefined") window.__SIMP_PREV_LANG = null;
           }
         }}
       >
@@ -1522,6 +1559,7 @@ export default function App() {
         ))}
         <span className="boot-hello">Hello,</span>
         <span className="boot-simp">Simp.</span>
+        {prevLangCard}
       </div>
     );
   }
@@ -1640,6 +1678,7 @@ export default function App() {
           }}
         >
           {/* Floating hearts background */}
+
           {[
             { left: "8%",  size: "1.4rem", delay: "0s",   dur: "7s"  },
             { left: "18%", size: "1rem",   delay: "1.5s", dur: "9s"  },
@@ -1776,7 +1815,66 @@ export default function App() {
               </div>
             )}
           </div>
+          
+          {/* Reset Language Button (smaller, below words learnt) */}
+          <button
+            className="reset-language-btn"
+            style={{
+              margin: "10px auto 0 auto",
+              background: "rgba(255,255,255,0.13)",
+              border: "none",
+              borderRadius: 14,
+              padding: "5px 14px",
+              color: "#fff",
+              fontWeight: 500,
+              fontSize: 13,
+              boxShadow: "0 1px 6px 0 rgba(0,0,0,0.10)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              letterSpacing: 0.1,
+              cursor: "pointer",
+              zIndex: 2000,
+              transition: "background 0.18s",
+              display: "block",
+            }}
+            onClick={() => {
+              // Save current language and learned words
+              let prevLang = null, prevWords = null;
+              try {
+                prevLang = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+                prevWords = window.localStorage.getItem(LEARNED_WORDS_STORAGE_KEY);
+              } catch {}
+              // Remove language and progress
+              try {
+                window.localStorage.removeItem(LANGUAGE_STORAGE_KEY);
+                window.localStorage.removeItem(LEARNED_WORDS_STORAGE_KEY);
+              } catch {}
+              setTargetLanguage(DEFAULT_TARGET_LANGUAGE);
+              setLearnedWords([]);
+              setBootFadingOut(false);
+              setUnlocked(false);
+              setPhase("idle");
+              setBootPhase("hello");
+              // Show SIMP card for previous language if progress existed
+              if (prevLang && prevWords) {
+                try {
+                  const words = JSON.parse(prevWords);
+                  if (Array.isArray(words) && words.length > 0) {
+                    window.__SIMP_PREV_LANG = { lang: prevLang, words };
+                  } else {
+                    window.__SIMP_PREV_LANG = null;
+                  }
+                } catch { window.__SIMP_PREV_LANG = null; }
+              } else {
+                window.__SIMP_PREV_LANG = null;
+              }
+            }}
+          >
+            Reset Language
+          </button>
+
           <div style={{ flex: 1 }} />
+          
           {/* Swipe up hint */}
           <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, opacity: 0.45, letterSpacing: 0.3 }}>Swipe up to learn</span>
