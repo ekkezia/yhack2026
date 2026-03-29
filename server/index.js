@@ -11,13 +11,13 @@ app.use(express.json({ limit: "10mb" }));
 
 
 const TARGET_OBJECTS = [
-  "trash bin",
+  // "trash bin",
   "plant",
-  "handphone",
-  "paper",
-  "pencil",
+  // "handphone",
+  // "paper",
+  // "pencil",
   "flower",
-  "backpack",
+  // "backpack",
   "chair",
   "table",
 ];

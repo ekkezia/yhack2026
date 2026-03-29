@@ -436,19 +436,30 @@ body,
     color: rgba(255, 255, 255, 0.45);
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.3rem;
 }
 
 .boot-lang-title {
-    font-size: clamp(1.9rem, 7vw, 2.5rem);
+    font-size: 32px;
+    line-height: 1.4;
+    color: rgba(255,255,255,0.85);
+    text-align: center;
+    width: 100%;
+    padding: 20px;
     font-weight: 700;
-    color: white;
+    letter-spacing: -0.03em;
+}
+
+.boot-lang-desc {
+    font-size: clamp(1rem, 1vw, 1rem);
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.65);
     letter-spacing: -0.03em;
     text-align: center;
-    line-height: 1.2;
     white-space: pre-line;
     margin-bottom: 2rem;
     padding: 0 1.5rem;
+    max-width: 480px;
 }
 
 .boot-lang-list {
@@ -466,7 +477,7 @@ body,
     display: flex;
     align-items: center;
     gap: 0.9rem;
-    padding: 0.95rem 1.1rem;
+    padding: 0.95rem 1.5rem;
     background: transparent;
     border: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);

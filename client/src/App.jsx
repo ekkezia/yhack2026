@@ -1593,10 +1593,11 @@ export default function App() {
           >🤍</span>
         ))}
         <p className="boot-lang-eyebrow">Welcome to Simp</p>
-        <h1 className="boot-lang-title">Choose your{"\n"}language to learn</h1>
-        <p style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.95rem", textAlign: "center", padding: "0 2rem", marginBottom: "1.5rem", lineHeight: 1.5 }}>
-          Your virtual partner speaks your target language.<br />
-          Learn naturally through real conversation.
+        <h1 className="boot-lang-title">Choose your language</h1>
+        <p className="boot-lang-desc">
+          Your long-distance lover keeps calling — but they speak a different language.{" "}
+          <strong>SIMP</strong> teaches you vocabulary through real conversations: pick up the call,
+          listen to what they need, and find it. One word at a time, one call at a time.
         </p>
         <div className="boot-lang-list">
           {SUPPORTED_LANGUAGES.map((lang) => (
@@ -1836,6 +1837,7 @@ export default function App() {
               zIndex: 2000,
               transition: "background 0.18s",
               display: "block",
+              opacity: 0.5,
             }}
             onClick={() => {
               // Save current language and learned words
@@ -1870,7 +1872,7 @@ export default function App() {
               }
             }}
           >
-            Reset Language
+            Reset SIMP
           </button>
 
           <div style={{ flex: 1 }} />
