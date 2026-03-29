@@ -16,7 +16,7 @@ import {
 
 const NATIVE_LANGUAGE = "English";
 const TARGET_LANGUAGE = import.meta.env.VITE_TARGET_LANGUAGE || "Indonesian";
-const LEARNED_WORDS_STORAGE_KEY = "lingualens.learned_words_v1";
+const LEARNED_WORDS_STORAGE_KEY = "simp.learned_words_v1";
 const ENGLISH_PRACTICE_MODE = "english_practice";
 const FIND_REQUESTED_MODE = "find_requested";
 const MAX_FIND_FAIL_ROUNDS = 4;
@@ -1426,7 +1426,7 @@ export default function App() {
             position: "fixed",
             inset: 0,
             zIndex: 1000,
-            background: "linear-gradient(180deg, #222 0%, #111 100%)",
+            background: "linear-gradient(160deg, #1a0520 0%, #2e0d38 45%, #1a0520 100%)",
             color: "white",
             display: "flex",
             flexDirection: "column",
@@ -1473,6 +1473,36 @@ export default function App() {
             setSwipeDelta(0);
           }}
         >
+          {/* Floating hearts background */}
+          {[
+            { left: "8%",  size: "1.4rem", delay: "0s",   dur: "7s"  },
+            { left: "18%", size: "1rem",   delay: "1.5s", dur: "9s"  },
+            { left: "30%", size: "1.8rem", delay: "3s",   dur: "8s"  },
+            { left: "42%", size: "1.1rem", delay: "0.7s", dur: "11s" },
+            { left: "55%", size: "1.5rem", delay: "2s",   dur: "7.5s"},
+            { left: "65%", size: "0.9rem", delay: "4s",   dur: "10s" },
+            { left: "75%", size: "1.6rem", delay: "1s",   dur: "8.5s"},
+            { left: "85%", size: "1.2rem", delay: "2.8s", dur: "9.5s"},
+            { left: "22%", size: "0.8rem", delay: "5s",   dur: "12s" },
+            { left: "50%", size: "1.3rem", delay: "3.5s", dur: "6.5s"},
+            { left: "92%", size: "1rem",   delay: "0.3s", dur: "10s" },
+            { left: "38%", size: "0.9rem", delay: "6s",   dur: "8s"  },
+          ].map((h, i) => (
+            <span
+              key={i}
+              className="floating-heart"
+              style={{
+                left: h.left,
+                bottom: "-5%",
+                fontSize: h.size,
+                animationDelay: h.delay,
+                animationDuration: h.dur,
+              }}
+            >
+              🤍
+            </span>
+          ))}
+
           <div
             style={{
               paddingTop: 36,
@@ -1500,11 +1530,11 @@ export default function App() {
             }}>
               <div style={{
                 width: 18, height: 18, borderRadius: 5,
-                background: "linear-gradient(135deg, #7c5cfc, #a78bfa)",
+                background: "linear-gradient(135deg, #e8326a, #ff6b9d)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: 10,
-              }}>📚</div>
-              <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.55, letterSpacing: 0.3, textTransform: "uppercase" }}>LinguaLens</span>
+              }}>📞</div>
+              <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.55, letterSpacing: 0.3, textTransform: "uppercase" }}>simp</span>
               <span style={{ fontSize: 12, opacity: 0.4, marginLeft: "auto" }}>now</span>
             </div>
 
@@ -1595,9 +1625,9 @@ export default function App() {
               <div className="ios-caller-info">
                 <div className="ios-avatar">👤</div>
                 <h2 className="ios-caller-name">
-                  {incomingCallData?.friendName || "Incoming Call"}
+                  {incomingCallData?.friendName || "Incoming Call"} ❤️
                 </h2>
-                <p className="ios-caller-status">LinguaLens Video</p>
+                <p className="ios-caller-status">simp Video</p>
               </div>
 
               <div className="ios-actions">

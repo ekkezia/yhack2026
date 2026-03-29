@@ -1,6 +1,6 @@
-# LinguaLens: Real-Time Visual Language Learning
+# simp: Real-Time Visual Language Learning
 
-LinguaLens is a mobile-first web application that turns the physical world into a language-learning playground. It uses a camera feed to detect objects in real-time, generates contextual voice scripts in a native language (e.g., English), and challenges users to identify objects in a target language (e.g., Portuguese).
+simp is a mobile-first web application that turns the physical world into a language-learning playground. It uses a camera feed to detect objects in real-time, generates contextual voice scripts in a native language (e.g., English), and challenges users to identify objects in a target language (e.g., Portuguese).
 
 ## 🏗 Project Architecture
 

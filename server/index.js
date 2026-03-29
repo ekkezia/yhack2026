@@ -488,6 +488,7 @@ Use this exact object in ${nativeLanguage}: "${targetObject}".
 Tasks:
 1. Translate "${targetObject}" to ${targetLanguage}.
 2. Write one short, natural opener from "${friendName}" in a mixed style:
+   - starts with "Hi babe!"
    - mostly ${nativeLanguage} with a little ${targetLanguage}
    - says: "I need your help finding something"
    - says they may switch between ${nativeLanguage} and ${targetLanguage}
@@ -524,7 +525,7 @@ Respond ONLY with valid JSON (no markdown fences):
       targetObjectTranslated: parsed.targetObjectTranslated || targetObject,
       script:
         parsed.script ||
-        `Hey, I need your help finding something. I might switch between ${nativeLanguage} and ${targetLanguage} a bit. Can you find my ${parsed.targetObjectTranslated || targetObject}?`,
+        `Hi babe! I need your help finding something. I might switch between ${nativeLanguage} and ${targetLanguage} a bit. Can you find my ${parsed.targetObjectTranslated || targetObject}?`,
     };
 
     console.log(
