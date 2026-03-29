@@ -350,14 +350,19 @@ body,
     position: fixed;
     inset: 0;
     z-index: 2000;
-    background: #000;
+    background: linear-gradient(160deg, #1a0520 0%, #2e0d38 45%, #1a0520 100%);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 0.1rem;
-    animation: bootHelloShow 2.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    animation: bootFadeIn 0.5s ease both;
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+    overflow: hidden;
+}
+
+.boot-screen.boot-fade-out {
+    animation: bootFadeOut 0.45s ease forwards;
 }
 
 .boot-hello {
@@ -379,10 +384,14 @@ body,
     animation: bootTextIn 0.7s ease 0.55s both;
 }
 
-@keyframes bootHelloShow {
-    0%   { opacity: 1; }
-    70%  { opacity: 1; }
-    100% { opacity: 0; pointer-events: none; }
+@keyframes bootFadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes bootFadeOut {
+    from { opacity: 1; transform: translateY(0); }
+    to   { opacity: 0; transform: translateY(-10px); }
 }
 
 @keyframes bootTextIn {
@@ -392,7 +401,7 @@ body,
 
 /* ── Language picker ─────────────────────────────────────────────────────── */
 .boot-language-screen {
-    animation: fadeIn 0.45s ease both;
+    animation: bootFadeIn 0.45s ease both;
     justify-content: flex-start;
     padding: max(env(safe-area-inset-top, 0px), 3.5rem) 0 2rem;
     overflow-y: auto;

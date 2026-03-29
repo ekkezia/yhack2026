@@ -1383,11 +1383,16 @@ app.post("/api/generate-word-image", async (req, res) => {
   if (wordImageCache.has(key)) {
     return res.json(wordImageCache.get(key));
   }
+  // Lava does not support Gemini image generation models — call Google directly
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${process.env.GEMINI_API_KEY}`;
   try {
-    const geminiRes = await lavaForward(geminiUrl, {
-      contents: [{ parts: [{ text: `Simple flat icon of a ${key}. White background, no text, bold clear shape, sticker style, minimal.` }] }],
-      generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+    const geminiRes = await fetch(geminiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `Simple flat icon of a ${key}. White background, no text, bold clear shape, sticker style, minimal.` }] }],
+        generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+      }),
     });
     const data = await geminiRes.json();
     console.log("[generate-word-image] raw response keys:", JSON.stringify(Object.keys(data)));

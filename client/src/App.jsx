@@ -22,13 +22,8 @@ const SUPPORTED_LANGUAGES = [
   { name: "Portuguese", flag: "🇧🇷", locale: "pt-BR" },
   { name: "Spanish",    flag: "🇪🇸", locale: "es-ES" },
   { name: "French",     flag: "🇫🇷", locale: "fr-FR" },
-  { name: "Japanese",   flag: "🇯🇵", locale: "ja-JP" },
-  { name: "Korean",     flag: "🇰🇷", locale: "ko-KR" },
-  { name: "Mandarin",   flag: "🇨🇳", locale: "zh-CN" },
-  { name: "German",     flag: "🇩🇪", locale: "de-DE" },
-  { name: "Italian",    flag: "🇮🇹", locale: "it-IT" },
-  { name: "Arabic",     flag: "🇦🇪", locale: "ar-AE" },
 ];
+const LANGUAGE_STORAGE_KEY = "simp.target_language_v1";
 const LEARNED_WORDS_STORAGE_KEY = "simp.learned_words_v1";
 const ENGLISH_PRACTICE_MODE = "english_practice";
 const FIND_REQUESTED_MODE = "find_requested";
@@ -211,8 +206,17 @@ function vibrate(pattern) {
 }
 
 export default function App() {
-  const [bootPhase, setBootPhase] = useState("hello"); // "hello" | "language" | null
-  const [targetLanguage, setTargetLanguage] = useState(DEFAULT_TARGET_LANGUAGE);
+  const [bootPhase, setBootPhase] = useState(() => {
+    try {
+      return window.localStorage.getItem(LANGUAGE_STORAGE_KEY) ? null : "hello";
+    } catch { return "hello"; }
+  });
+  const [bootFadingOut, setBootFadingOut] = useState(false);
+  const [targetLanguage, setTargetLanguage] = useState(() => {
+    try {
+      return window.localStorage.getItem(LANGUAGE_STORAGE_KEY) || DEFAULT_TARGET_LANGUAGE;
+    } catch { return DEFAULT_TARGET_LANGUAGE; }
+  });
   const [unlocked, setUnlocked] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const [facingMode, setFacingMode] = useState("environment");
@@ -331,7 +335,6 @@ export default function App() {
 
     try {
       const canPlayAudio = await unlockAudioPlayback();
-      await requestMediaPermissions();
       if (canPlayAudio) {
         playAudioSource("/iphone_ringtone.mp3", { loop: true }).catch((err) => {
           console.error("[DEBUG] ringtoneAudio.play() error:", err);
@@ -346,9 +349,15 @@ export default function App() {
   }, [
     unlocked,
     unlockAudioPlayback,
-    requestMediaPermissions,
     playAudioSource,
   ]);
+
+  // Linger on hello screen then fade out
+  useEffect(() => {
+    if (bootPhase !== "hello") return;
+    const t = setTimeout(() => setBootFadingOut(true), 2400);
+    return () => clearTimeout(t);
+  }, [bootPhase]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -1486,7 +1495,31 @@ export default function App() {
   // ── Boot: Hello screen ──────────────────────────────────────────────────────
   if (bootPhase === "hello") {
     return (
-      <div className="boot-screen" onAnimationEnd={() => setBootPhase("language")}>
+      <div
+        className={`boot-screen${bootFadingOut ? " boot-fade-out" : ""}`}
+        onAnimationEnd={() => {
+          if (bootFadingOut) {
+            setBootFadingOut(false);
+            setBootPhase("language");
+          }
+        }}
+      >
+        {[
+          { left: "8%",  size: "1.2rem", delay: "0s",   dur: "7s"  },
+          { left: "20%", size: "0.9rem", delay: "1.5s", dur: "9s"  },
+          { left: "35%", size: "1.5rem", delay: "3s",   dur: "8s"  },
+          { left: "55%", size: "1.1rem", delay: "0.7s", dur: "11s" },
+          { left: "70%", size: "1.4rem", delay: "2s",   dur: "7.5s"},
+          { left: "85%", size: "0.8rem", delay: "4s",   dur: "10s" },
+          { left: "48%", size: "1.3rem", delay: "3.5s", dur: "6.5s"},
+          { left: "92%", size: "1rem",   delay: "0.3s", dur: "10s" },
+        ].map((h, i) => (
+          <span
+            key={i}
+            className="floating-heart"
+            style={{ left: h.left, bottom: "-5%", fontSize: h.size, animationDelay: h.delay, animationDuration: h.dur }}
+          >🤍</span>
+        ))}
         <span className="boot-hello">Hello,</span>
         <span className="boot-simp">Simp.</span>
       </div>
@@ -1496,17 +1529,47 @@ export default function App() {
   // ── Boot: Language picker ────────────────────────────────────────────────────
   if (bootPhase === "language") {
     return (
-      <div className="boot-screen boot-language-screen">
+      <div
+        className={`boot-screen boot-language-screen${bootFadingOut ? " boot-fade-out" : ""}`}
+        onAnimationEnd={() => {
+          if (bootFadingOut) {
+            setBootFadingOut(false);
+            setBootPhase(null);
+          }
+        }}
+      >
+        {[
+          { left: "8%",  size: "1.2rem", delay: "0s",   dur: "7s"  },
+          { left: "20%", size: "0.9rem", delay: "1.5s", dur: "9s"  },
+          { left: "35%", size: "1.5rem", delay: "3s",   dur: "8s"  },
+          { left: "55%", size: "1.1rem", delay: "0.7s", dur: "11s" },
+          { left: "70%", size: "1.4rem", delay: "2s",   dur: "7.5s"},
+          { left: "85%", size: "0.8rem", delay: "4s",   dur: "10s" },
+          { left: "48%", size: "1.3rem", delay: "3.5s", dur: "6.5s"},
+          { left: "92%", size: "1rem",   delay: "0.3s", dur: "10s" },
+        ].map((h, i) => (
+          <span
+            key={i}
+            className="floating-heart"
+            style={{ left: h.left, bottom: "-5%", fontSize: h.size, animationDelay: h.delay, animationDuration: h.dur }}
+          >🤍</span>
+        ))}
         <p className="boot-lang-eyebrow">Welcome to Simp</p>
         <h1 className="boot-lang-title">Choose your{"\n"}language to learn</h1>
+        <p style={{ color: "rgba(255,255,255,0.55)", fontSize: "0.95rem", textAlign: "center", padding: "0 2rem", marginBottom: "1.5rem", lineHeight: 1.5 }}>
+          Your virtual partner speaks your target language.<br />
+          Learn naturally through real conversation.
+        </p>
         <div className="boot-lang-list">
           {SUPPORTED_LANGUAGES.map((lang) => (
             <button
               key={lang.name}
               className="boot-lang-row"
               onClick={() => {
+                try { window.localStorage.setItem(LANGUAGE_STORAGE_KEY, lang.name); } catch {}
                 setTargetLanguage(lang.name);
-                setBootPhase(null);
+                requestMediaPermissions().catch(console.warn);
+                setBootFadingOut(true);
               }}
             >
               <span className="boot-lang-flag">{lang.flag}</span>
@@ -1637,7 +1700,7 @@ export default function App() {
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: 10,
               }}>📞</div>
-              <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.55, letterSpacing: 0.3, textTransform: "uppercase" }}>simp</span>
+              <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.55, letterSpacing: 0.3, textTransform: "uppercase" }}>simp in ♡ {targetLanguage}</span>
               <span style={{ fontSize: 12, opacity: 0.4, marginLeft: "auto" }}>now</span>
             </div>
 
@@ -1752,7 +1815,7 @@ export default function App() {
                   {incomingCallData?.friendName || "Incoming Call"} ❤️
                 </h2>
                 <p className="ios-caller-status">{getCallerLocation(targetLanguage)}</p>
-                <p className="ios-caller-status">simp Video</p>
+                <p className="ios-caller-status">SIMP Video</p>
               </div>
 
               <div className="ios-actions">
