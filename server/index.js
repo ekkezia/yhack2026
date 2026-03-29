@@ -9,18 +9,6 @@ const PORT = process.env.PORT || 3001;
 app.use(cors({ origin: "*" }));
 app.use(express.json({ limit: "10mb" }));
 
-const FRIEND_NAMES = [
-  "Adi",
-  "Budi",
-  "Rizky",
-  "Fajar",
-  "Dimas",
-  "Andi",
-  "Arif",
-  "Agus",
-  "Bayu",
-  "Hendra",
-];
 
 const TARGET_OBJECTS = [
   "trash bin",
@@ -479,23 +467,23 @@ app.post("/api/phone-start", async (req, res) => {
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
-  const friendName = pickRandomFrom(FRIEND_NAMES);
   const targetObject = pickRandomObjectNoImmediateRepeat();
   const prompt = `You are designing a script for an AI friend calling the user.
-Use this exact friend name: "${friendName}".
-Use this exact object in ${nativeLanguage}: "${targetObject}".
+The friend is a native ${targetLanguage} speaker.
 
 Tasks:
-1. Translate "${targetObject}" to ${targetLanguage}.
-2. Write one short, natural opener from "${friendName}" in a mixed style:
+1. Generate a single common male first name that is native to ${targetLanguage}-speaking culture.
+2. Translate "${targetObject}" to ${targetLanguage}.
+3. Write one short, natural opener from that friend in a mixed style:
    - starts with "Hi babe!"
    - 85% ${nativeLanguage}, 15% ${targetLanguage} (naturally weave in a few ${targetLanguage} words/phrases)
    - says: "I need your help finding something"
    - directly asks user to find the object using the ${targetLanguage} term.
-3. Do NOT ask the user to choose a language.
+4. Do NOT ask the user to choose a language.
 
 Respond ONLY with valid JSON (no markdown fences):
 {
+  "friendName": "a native ${targetLanguage} male first name",
   "targetObjectTranslated": "object name in ${targetLanguage}",
   "script": "opening script in mixed ${nativeLanguage}+${targetLanguage}"
 }`;
@@ -503,7 +491,7 @@ Respond ONLY with valid JSON (no markdown fences):
   try {
     const geminiRes = await lavaForward(geminiUrl, {
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.8, maxOutputTokens: 256 },
+      generationConfig: { temperature: 0.9, maxOutputTokens: 256 },
     });
 
     const data = await geminiRes.json();
@@ -518,13 +506,14 @@ Respond ONLY with valid JSON (no markdown fences):
     }
 
     const parsed = JSON.parse(text);
+    const friendName = parsed.friendName || "Adi";
     const payload = {
       friendName,
       targetObject,
       targetObjectTranslated: parsed.targetObjectTranslated || targetObject,
       script:
         parsed.script ||
-        `Hi babe! I need your help finding something. I might switch between ${nativeLanguage} and ${targetLanguage} a bit. Can you find my ${parsed.targetObjectTranslated || targetObject}?`,
+        `Hi babe! I need your help finding something. Can you find my ${parsed.targetObjectTranslated || targetObject}?`,
     };
 
     console.log(
