@@ -1,6 +1,6 @@
 # S.I.M.P [Socially-Integrated Multilingual Practice]
 
-SIMP is an interactive language-learning application that simulates real-time phone calls, guiding users through physical, context-based tasks to reinforce vocabulary through immersive, real-world interaction.
+S.I.M.P is an interactive language-learning application that simulates real-time phone calls, guiding users through physical, context-based tasks to reinforce vocabulary through immersive, real-world interaction.
 
 ## How to run
 #### Development
