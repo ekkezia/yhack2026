@@ -2,6 +2,15 @@
 
 simp is a mobile-first web application that turns the physical world into a language-learning playground. It uses a camera feed to detect objects in real-time, generates contextual voice scripts in a native language (e.g., English), and challenges users to identify objects in a target language (e.g., Portuguese).
 
+## How to run
+#### Development
+- For local development, use YOLO for object detection to avoid consuming Gemini tokens. Run:
+  - `cd cv_server && pip install -r requirements.txt`
+  - `npm run dev:with-cv` (this ensures the YOLO server runs and is used by default)
+
+#### Production
+- In production, object detection is handled by Gemini (via the Node server). You do **not** need to run the YOLO server in production. Gemini models are metered and less likely to run out of tokens with a proper API key and plan.
+
 ## 🏗 Project Architecture
 
 The project is structured as a monorepo with decoupled services.

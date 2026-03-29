@@ -1510,7 +1510,7 @@ export default function App() {
           textAlign: "center",
           fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif",
         }}>
-          <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>SIMP in {prev.lang}</div>
+          <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>Words SIMPed {prev.lang}</div>
           <div style={{ fontSize: 14, opacity: 0.7, marginBottom: 8 }}>Words learnt: {prev.words.length}</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
             {prev.words.slice(-8).map((w, i) => (
