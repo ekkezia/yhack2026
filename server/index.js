@@ -97,13 +97,6 @@ function normalizeChosenLanguage(value, nativeLanguage, targetLanguage) {
 function canonicalLanguageKey(value) {
   const raw = normText(value);
   if (!raw) return "";
-  if (
-    raw.includes("indones") ||
-    raw.includes("bahasa indonesia") ||
-    raw.includes("bahasa")
-  ) {
-    return "indonesian";
-  }
   if (raw.includes("portugu")) return "portuguese";
   if (raw.includes("spanish") || raw.includes("espanol") || raw.includes("espanhol")) {
     return "spanish";
@@ -126,10 +119,6 @@ function resolveVoiceIdForLanguage(language) {
     spanish:
       process.env.VOICE_ID_SPANISH ||
       process.env.ELEVENLABS_VOICE_ID_SPANISH ||
-      "",
-    indonesian:
-      process.env.VOICE_ID_INDONESIAN ||
-      process.env.ELEVENLABS_VOICE_ID_INDONESIAN ||
       "",
     portuguese:
       process.env.VOICE_ID_PORTUGUESE ||
@@ -336,7 +325,7 @@ async function lavaForward(providerUrl, body, extraHeaders = {}) {
 app.post("/api/detect-and-script", async (req, res) => {
   const {
     imageBase64,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
   if (!imageBase64)
@@ -430,7 +419,7 @@ app.post("/api/check-answer", async (req, res) => {
   const {
     guess,
     correctObject,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -473,7 +462,7 @@ Respond ONLY with JSON: { "correct": true|false, "feedback": "short encouraging 
 // ─── POST /api/phone-start ────────────────────────────────────────────────────
 app.post("/api/phone-start", async (req, res) => {
   const {
-    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -544,7 +533,7 @@ app.post("/api/phone-reply", async (req, res) => {
     friendName,
     targetObject,
     targetObjectTranslated,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -615,7 +604,7 @@ app.post("/api/phone-yap", async (req, res) => {
     visibleObjects = [],
     focusObject = "",
     noObjectRounds = 0,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -723,7 +712,7 @@ app.post("/api/phone-interrupt", async (req, res) => {
     gameMode = "find_requested",
     chosenLanguage,
     visibleObjects = [],
-    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -810,7 +799,7 @@ app.post("/api/phone-english-prompt", async (req, res) => {
   const {
     friendName,
     objectName,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -868,7 +857,7 @@ app.post("/api/phone-english-evaluate", async (req, res) => {
     objectName,
     objectTranslated,
     guess,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -931,7 +920,7 @@ app.post("/api/phone-struggle", async (req, res) => {
   const {
     friendName,
     targetObject,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -976,7 +965,7 @@ app.post("/api/phone-found", async (req, res) => {
     targetObject,
     targetObjectTranslated,
     chosenLanguage,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
     struggled = false,
   } = req.body;

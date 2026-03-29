@@ -15,7 +15,7 @@ import {
 } from "./services/api.js";
 
 const NATIVE_LANGUAGE = "English";
-const TARGET_LANGUAGE = import.meta.env.VITE_TARGET_LANGUAGE || "Indonesian";
+const TARGET_LANGUAGE = import.meta.env.VITE_TARGET_LANGUAGE || "Portuguese";
 const LEARNED_WORDS_STORAGE_KEY = "lingualens.learned_words_v1";
 const ENGLISH_PRACTICE_MODE = "english_practice";
 const FIND_REQUESTED_MODE = "find_requested";
@@ -59,18 +59,6 @@ function isLikelyConfusionText(text) {
     "nao compreendo",
     "nao estou a perceber",
     "nao to entendendo",
-    "tidak mengerti",
-    "saya tidak mengerti",
-    "aku tidak mengerti",
-    "ga ngerti",
-    "gak ngerti",
-    "nggak ngerti",
-    "tidak paham",
-    "saya tidak paham",
-    "aku tidak paham",
-    "bingung",
-    "saya bingung",
-    "aku bingung",
   ];
   return signals.some((s) => t.includes(s));
 }
@@ -79,7 +67,6 @@ function getLanguageLocale(language, fallback = "en-US") {
   const lang = normText(language);
   if (!lang) return fallback;
   if (lang.includes("portugu")) return "pt-BR";
-  if (lang.includes("indones")) return "id-ID";
   if (lang.includes("english")) return "en-US";
   if (lang.includes("spanish")) return "es-ES";
   return fallback;
