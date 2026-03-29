@@ -85,6 +85,7 @@ function normalizeChosenLanguage(value, nativeLanguage, targetLanguage) {
 function canonicalLanguageKey(value) {
   const raw = normText(value);
   if (!raw) return "";
+
   if (
     raw.includes("indones") ||
     raw.includes("bahasa indonesia") ||
@@ -92,11 +93,29 @@ function canonicalLanguageKey(value) {
   ) {
     return "indonesian";
   }
+
   if (raw.includes("portugu")) return "portuguese";
-  if (raw.includes("spanish") || raw.includes("espanol") || raw.includes("espanhol")) {
+
+  if (
+    raw.includes("spanish") ||
+    raw.includes("espanol") ||
+    raw.includes("espanhol")
+  ) {
     return "spanish";
   }
-  if (raw.includes("english") || raw.includes("inggris")) return "english";
+
+  if (
+    raw.includes("french") ||
+    raw.includes("francais") ||
+    raw.includes("français")
+  ) {
+    return "french";
+  }
+
+  if (raw.includes("english") || raw.includes("inggris")) {
+    return "english";
+  }
+
   return "";
 }
 
@@ -106,24 +125,32 @@ function resolveVoiceIdForLanguage(language) {
     process.env.ELEVENLABS_VOICE_ID ||
     "21m00Tcm4TlvDq8ikWAM";
 
-  const byLanguage = {
-    english:
-      process.env.VOICE_ID_ENGLISH ||
-      process.env.ELEVENLABS_VOICE_ID_ENGLISH ||
-      "",
-    spanish:
-      process.env.VOICE_ID_SPANISH ||
-      process.env.ELEVENLABS_VOICE_ID_SPANISH ||
-      "",
-    indonesian:
-      process.env.VOICE_ID_INDONESIAN ||
-      process.env.ELEVENLABS_VOICE_ID_INDONESIAN ||
-      "",
-    portuguese:
-      process.env.VOICE_ID_PORTUGUESE ||
-      process.env.ELEVENLABS_VOICE_ID_PORTUGUESE ||
-      "",
-  };
+const byLanguage = {
+  english:
+    process.env.VOICE_ID_ENGLISH ||
+    process.env.ELEVENLABS_VOICE_ID_ENGLISH ||
+    "",
+
+  spanish:
+    process.env.VOICE_ID_SPANISH ||
+    process.env.ELEVENLABS_VOICE_ID_SPANISH ||
+    "",
+
+  indonesian:
+    process.env.VOICE_ID_INDONESIAN ||
+    process.env.ELEVENLABS_VOICE_ID_INDONESIAN ||
+    "",
+
+  portuguese:
+    process.env.VOICE_ID_PORTUGUESE ||
+    process.env.ELEVENLABS_VOICE_ID_PORTUGUESE ||
+    "",
+
+  french:
+    process.env.VOICE_ID_FRENCH ||
+    process.env.ELEVENLABS_VOICE_ID_FRENCH ||
+    "",
+};
 
   const key = canonicalLanguageKey(language);
   if (key && byLanguage[key]) {
@@ -132,7 +159,7 @@ function resolveVoiceIdForLanguage(language) {
 
   // Backward-compatible native/target fallback.
   const nativeLanguage = process.env.NATIVE_LANGUAGE || "English";
-  const targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese";
+  const targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian";
   const normalized = normText(language);
   if (normalized) {
     if (normText(targetLanguage) === normalized && process.env.VOICE_TARGET_ID) {
@@ -391,15 +418,27 @@ app.post("/api/speak", async (req, res) => {
   const elUrl = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
 
   try {
-    const elRes = await lavaForward(
-      elUrl,
-      {
+    const elRes = await fetch(elUrl, {
+      method: "POST",
+      headers: {
+        "xi-api-key": process.env.ELEVENLABS_API_KEY,
+        "Content-Type": "application/json",
+        Accept: "audio/mpeg",
+      },
+      body: JSON.stringify({
         text,
         model_id: "eleven_multilingual_v2",
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
-      },
-      { "xi-api-key": process.env.ELEVENLABS_API_KEY },
-    );
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+        },
+      }),
+    });
+
+    if (!elRes.ok) {
+      const errText = await elRes.text();
+      throw new Error(`ElevenLabs error ${elRes.status}: ${errText}`);
+    }
 
     const audioBuffer = await elRes.buffer();
     res.json({

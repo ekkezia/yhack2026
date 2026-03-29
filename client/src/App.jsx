@@ -1,3 +1,8 @@
+import {
+  getAvailableLanguageLabels,
+  getLanguageLocale,
+  getCallerLocation,
+} from "./config/languages.js";
 import { useRef, useState, useEffect, useCallback } from "react";
 import CameraView from "./components/CameraView.jsx";
 import {
@@ -15,27 +20,14 @@ import {
 } from "./services/api.js";
 
 const NATIVE_LANGUAGE = "English";
-const TARGET_LANGUAGE = import.meta.env.VITE_TARGET_LANGUAGE || "Indonesian";
+const DEFAULT_TARGET_LANGUAGE =
+  import.meta.env.VITE_TARGET_LANGUAGE || "Indonesian";
 const LEARNED_WORDS_STORAGE_KEY = "simp.learned_words_v1";
 const ENGLISH_PRACTICE_MODE = "english_practice";
 const FIND_REQUESTED_MODE = "find_requested";
 const MAX_FIND_FAIL_ROUNDS = 4;
 const SHOW_BBOX = false;
 
-function getCallerLocation(language) {
-  const lang = String(language || "").toLowerCase().trim();
-  if (lang.includes("indones")) return "Indonesia";
-  if (lang.includes("portugu")) return "Brazil";
-  if (lang.includes("spanish") || lang.includes("espanol")) return "Spain";
-  if (lang.includes("french") || lang.includes("français")) return "France";
-  if (lang.includes("japanese") || lang.includes("nihon")) return "Japan";
-  if (lang.includes("korean")) return "South Korea";
-  if (lang.includes("mandarin") || lang.includes("chinese")) return "China";
-  if (lang.includes("german") || lang.includes("deutsch")) return "Germany";
-  if (lang.includes("italian")) return "Italy";
-  if (lang.includes("arabic")) return "UAE";
-  return language || "";
-}
 
 function normText(value) {
   return String(value || "")
@@ -90,15 +82,6 @@ function isLikelyConfusionText(text) {
   return signals.some((s) => t.includes(s));
 }
 
-function getLanguageLocale(language, fallback = "en-US") {
-  const lang = normText(language);
-  if (!lang) return fallback;
-  if (lang.includes("portugu")) return "pt-BR";
-  if (lang.includes("indones")) return "id-ID";
-  if (lang.includes("english")) return "en-US";
-  if (lang.includes("spanish")) return "es-ES";
-  return fallback;
-}
 
 function pickPracticeObjectName(detections = []) {
   const ignored = new Set(["person", "face", "human"]);
@@ -191,6 +174,10 @@ function vibrate(pattern) {
 }
 
 export default function App() {
+  const AVAILABLE_LANGUAGES = getAvailableLanguageLabels();
+  const [selectedLanguage, setSelectedLanguage] = useState(
+    DEFAULT_TARGET_LANGUAGE
+  );
   const [unlocked, setUnlocked] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const [facingMode, setFacingMode] = useState("environment");
@@ -565,7 +552,7 @@ export default function App() {
 
     (async () => {
       try {
-        const startData = await phoneStart(TARGET_LANGUAGE, NATIVE_LANGUAGE);
+        const startData = await phoneStart(selectedLanguage, NATIVE_LANGUAGE);
         if (!cancelled) setIncomingCallData(startData);
       } catch (err) {
         console.error(err);
@@ -576,7 +563,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [phase, unlocked]);
+  }, [phase, unlocked, selectedLanguage]);
 
   // Play iPhone ringtone on "ringing" phase
   useEffect(() => {
@@ -648,13 +635,13 @@ export default function App() {
     setCallDuration(0);
     try {
       const startData =
-        incomingCallData || (await phoneStart(TARGET_LANGUAGE, NATIVE_LANGUAGE));
+        incomingCallData || (await phoneStart(selectedLanguage, NATIVE_LANGUAGE));
       setIncomingCallData(startData);
       setCallData({
         friendName: startData.friendName,
         targetObject: startData.targetObject,
         targetObjectTranslated: startData.targetObjectTranslated,
-        chosenLanguage: TARGET_LANGUAGE,
+        chosenLanguage: selectedLanguage,
         gameMode: FIND_REQUESTED_MODE,
         struggled: false,
       });
@@ -662,7 +649,7 @@ export default function App() {
       const { audioBase64, mimeType } = await speak(
         startData.script,
         null,
-        TARGET_LANGUAGE,
+        selectedLanguage,
       );
       setPhase("speaking_task");
       await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
@@ -685,7 +672,7 @@ export default function App() {
           callData.friendName,
           callData.targetObject,
           callData.targetObjectTranslated,
-          TARGET_LANGUAGE,
+          selectedLanguage,
           NATIVE_LANGUAGE,
         );
 
@@ -729,7 +716,7 @@ export default function App() {
         const promptData = await phoneEnglishPrompt({
           friendName: callData.friendName,
           objectName,
-          targetLanguage: TARGET_LANGUAGE,
+          targetLanguage: selectedLanguage,
           nativeLanguage: NATIVE_LANGUAGE,
         });
 
@@ -743,7 +730,7 @@ export default function App() {
         }));
         const { audioBase64, mimeType } = await speak(
           promptData?.script ||
-            `I can see a ${objectName}. How do you say ${objectName} in ${TARGET_LANGUAGE}?`,
+            `I can see a ${objectName}. How do you say ${objectName} in ${selectedLanguage}?`,
           null,
           NATIVE_LANGUAGE,
         );
@@ -779,7 +766,7 @@ export default function App() {
           objectName: callData.practiceObject,
           objectTranslated: callData.practiceObjectTranslated,
           guess: spokenGuess || "",
-          targetLanguage: TARGET_LANGUAGE,
+          targetLanguage: selectedLanguage,
           nativeLanguage: NATIVE_LANGUAGE,
         });
 
@@ -797,7 +784,7 @@ export default function App() {
 
         const { audioBase64, mimeType } = await speak(
           evalData?.finalScript ||
-            `${callData.practiceObject} in ${TARGET_LANGUAGE} is "${callData.practiceObjectTranslated}". Thanks for helping me, bye!`,
+            `${callData.practiceObject} in ${selectedLanguage} is "${callData.practiceObjectTranslated}". Thanks for helping me, bye!`,
           null,
           NATIVE_LANGUAGE,
         );
@@ -809,7 +796,7 @@ export default function App() {
         console.error("English evaluate error:", err);
         try {
           const fallback =
-            `Thanks for helping me. ${callData.practiceObject} in ${TARGET_LANGUAGE} is "${callData.practiceObjectTranslated}". Bye!`;
+            `Thanks for helping me. ${callData.practiceObject} in ${selectedLanguage} is "${callData.practiceObjectTranslated}". Bye!`;
           const { audioBase64, mimeType } = await speak(
             fallback,
             null,
@@ -842,7 +829,7 @@ export default function App() {
           visibleObjects,
           focusObject,
           noObjectRounds: noObjectRoundsRef.current,
-          targetLanguage: TARGET_LANGUAGE,
+          targetLanguage: selectedLanguage,
           nativeLanguage: NATIVE_LANGUAGE,
         });
         const { audioBase64, mimeType } = await speak(
@@ -917,7 +904,7 @@ export default function App() {
           visibleObjects: (cvDebug?.visibleObjectDetections || [])
             .map((d) => d?.name)
             .filter(Boolean),
-          targetLanguage: TARGET_LANGUAGE,
+          targetLanguage: selectedLanguage,
           nativeLanguage: NATIVE_LANGUAGE,
         });
 
@@ -1047,7 +1034,7 @@ export default function App() {
     (async () => {
       try {
         stopSession = await startGeminiMicSession({
-          languageHint: getLanguageLocale(TARGET_LANGUAGE, "pt-BR"),
+          languageHint: getLanguageLocale(selectedLanguage, "pt-BR"),
           context: "guess_object_word",
           timesliceMs: 1500,
           onStart: () => {
@@ -1127,7 +1114,7 @@ export default function App() {
       const stData = await phoneStruggle(
         callData.friendName,
         callData.targetObject,
-        TARGET_LANGUAGE,
+        selectedLanguage,
         NATIVE_LANGUAGE,
       );
 
@@ -1156,7 +1143,7 @@ export default function App() {
         callData.targetObjectTranslated,
         callData.chosenLanguage,
         struggledRef.current || callData.struggled,
-        TARGET_LANGUAGE,
+        selectedLanguage,
         NATIVE_LANGUAGE,
       );
       const elapsedMs =
@@ -1192,7 +1179,7 @@ export default function App() {
       const translated = callData.targetObjectTranslated || callData.targetObject;
       const englishWord = callData.targetObject || translated;
       const revealScript =
-        `Thanks for trying. The ${TARGET_LANGUAGE} word for ${englishWord} is "${translated}". ` +
+        `Thanks for trying. The ${selectedLanguage} word for ${englishWord} is "${translated}". ` +
         "Thank you anyway, I need to leave for now. Bye!";
       const elapsedMs =
         searchStartTimeRef.current > 0
@@ -1202,7 +1189,7 @@ export default function App() {
       const { audioBase64, mimeType } = await speak(
         revealScript,
         null,
-        callData?.chosenLanguage || TARGET_LANGUAGE,
+        callData?.chosenLanguage || selectedLanguage,
       );
       await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
         onEnded: () => endCall(),
@@ -1240,7 +1227,7 @@ export default function App() {
     const timeoutScript =
       "Sorry, I gotta go for now, I have some stuff to do. Thanks for helping me today. Bye!";
 
-    void speak(timeoutScript, null, callData?.chosenLanguage || TARGET_LANGUAGE)
+    void speak(timeoutScript, null, callData?.chosenLanguage || selectedLanguage)
       .then(({ audioBase64, mimeType }) =>
         playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
           onEnded: () => endCall(),
@@ -1689,12 +1676,31 @@ export default function App() {
           {phase === "ringing" && (
             <div className="ios-call-screen">
               <div className="ios-caller-info">
-                <div className="ios-avatar">👤</div>
-                <h2 className="ios-caller-name">
-                  {incomingCallData?.friendName || "Incoming Call"} ❤️
-                </h2>
-                <p className="ios-caller-status">{getCallerLocation(TARGET_LANGUAGE)}</p>
-                <p className="ios-caller-status">simp Video</p>
+                <div className="ios-avatar">
+                  {incomingCallData?.friendName?.[0] ?? "?"}
+                </div>
+
+                <div className="ios-caller-name">
+                  {incomingCallData?.friendName || "..."} <span>💖</span>
+                </div>
+
+                <div className="ios-caller-status">
+                  {getCallerLocation(selectedLanguage)}
+                </div>
+
+                <div className="ios-language-picker-wrap">
+                  <select
+                    className="ios-language-picker"
+                    value={selectedLanguage}
+                    onChange={(e) => setSelectedLanguage(e.target.value)}
+                  >
+                    {AVAILABLE_LANGUAGES.map((lang) => (
+                      <option key={lang} value={lang}>
+                        {lang}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div className="ios-actions">
@@ -1811,7 +1817,7 @@ export default function App() {
               >
                 <h2 className="ios-active-name" style={{ fontWeight: 600 }}>
                   {(callData?.gameMode || FIND_REQUESTED_MODE) === ENGLISH_PRACTICE_MODE
-                    ? `Practice: name nearby objects in ${TARGET_LANGUAGE}`
+                    ? `Practice: name nearby objects in ${selectedLanguage}`
                     : SHOW_BBOX ? `Find: ${callData?.targetObject}` : "🔍 Searching..."}
                 </h2>
                 <p
