@@ -10,37 +10,34 @@ app.use(cors({ origin: "*" }));
 app.use(express.json({ limit: "10mb" }));
 
 const FRIEND_NAMES = [
-  "Alex",
-  "Maya",
-  "Jordan",
-  "Sam",
-  "Katy",
-  "Riley",
-  "Noah",
-  "Avery",
-  "Emma",
-  "Leo",
+  "Adi",
+  "Budi",
+  "Rizky",
+  "Fajar",
+  "Dimas",
+  "Andi",
+  "Arif",
+  "Agus",
+  "Bayu",
+  "Hendra",
 ];
 
 const TARGET_OBJECTS = [
-  "keys",
-  "mug",
-  "shoe",
-  "book",
   "water bottle",
-  "headphones",
-  "wallet",
-  "glasses",
-  "remote control",
+  "trash bin",
+  "plant",
+  "handphone",
+  "paper",
+  "pencil",
+  "flower",
   "backpack",
-  "laptop",
-  "toothbrush",
-  "plate",
-  "banana",
-  "apple",
+  "chair",
+  "table",
 ];
 
 let lastPhoneTargetObject = null;
+const semanticMatchCache = new Map();
+const SEMANTIC_MATCH_CACHE_MAX = Number(process.env.SEMANTIC_MATCH_CACHE_MAX || 300);
 
 function pickRandomFrom(list) {
   return list[Math.floor(Math.random() * list.length)];
@@ -65,6 +62,27 @@ function normText(value) {
     .trim();
 }
 
+function clamp(value, low, high) {
+  return Math.max(low, Math.min(high, value));
+}
+
+function semanticCacheGet(key) {
+  if (!semanticMatchCache.has(key)) return null;
+  const value = semanticMatchCache.get(key);
+  // Touch for simple LRU behavior.
+  semanticMatchCache.delete(key);
+  semanticMatchCache.set(key, value);
+  return value;
+}
+
+function semanticCacheSet(key, value) {
+  semanticMatchCache.set(key, value);
+  while (semanticMatchCache.size > SEMANTIC_MATCH_CACHE_MAX) {
+    const firstKey = semanticMatchCache.keys().next().value;
+    semanticMatchCache.delete(firstKey);
+  }
+}
+
 function normalizeChosenLanguage(value, nativeLanguage, targetLanguage) {
   const raw = normText(value);
   if (!raw) return nativeLanguage;
@@ -74,6 +92,77 @@ function normalizeChosenLanguage(value, nativeLanguage, targetLanguage) {
   if (raw.includes(target) || target.includes(raw)) return targetLanguage;
   if (raw.includes(native) || native.includes(raw)) return nativeLanguage;
   return nativeLanguage;
+}
+
+function canonicalLanguageKey(value) {
+  const raw = normText(value);
+  if (!raw) return "";
+  if (
+    raw.includes("indones") ||
+    raw.includes("bahasa indonesia") ||
+    raw.includes("bahasa")
+  ) {
+    return "indonesian";
+  }
+  if (raw.includes("portugu")) return "portuguese";
+  if (raw.includes("spanish") || raw.includes("espanol") || raw.includes("espanhol")) {
+    return "spanish";
+  }
+  if (raw.includes("english") || raw.includes("inggris")) return "english";
+  return "";
+}
+
+function resolveVoiceIdForLanguage(language) {
+  const defaultVoiceId =
+    process.env.VOICE_ID ||
+    process.env.ELEVENLABS_VOICE_ID ||
+    "21m00Tcm4TlvDq8ikWAM";
+
+  const byLanguage = {
+    english:
+      process.env.VOICE_ID_ENGLISH ||
+      process.env.ELEVENLABS_VOICE_ID_ENGLISH ||
+      "",
+    spanish:
+      process.env.VOICE_ID_SPANISH ||
+      process.env.ELEVENLABS_VOICE_ID_SPANISH ||
+      "",
+    indonesian:
+      process.env.VOICE_ID_INDONESIAN ||
+      process.env.ELEVENLABS_VOICE_ID_INDONESIAN ||
+      "",
+    portuguese:
+      process.env.VOICE_ID_PORTUGUESE ||
+      process.env.ELEVENLABS_VOICE_ID_PORTUGUESE ||
+      "",
+  };
+
+  const key = canonicalLanguageKey(language);
+  if (key && byLanguage[key]) {
+    return byLanguage[key];
+  }
+
+  // Backward-compatible native/target fallback.
+  const nativeLanguage = process.env.NATIVE_LANGUAGE || "English";
+  const targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese";
+  const normalized = normText(language);
+  if (normalized) {
+    if (normText(targetLanguage) === normalized && process.env.VOICE_TARGET_ID) {
+      return process.env.VOICE_TARGET_ID;
+    }
+    if (normText(nativeLanguage) === normalized && process.env.VOICE_NATIVE_ID) {
+      return process.env.VOICE_NATIVE_ID;
+    }
+  }
+
+  return (
+    defaultVoiceId ||
+    process.env.VOICE_NATIVE_ID ||
+    process.env.VOICE_TARGET_ID ||
+    process.env.ELEVENLABS_TARGET_VOICE_ID ||
+    process.env.ELEVENLABS_VOICE_ID_TARGET ||
+    "21m00Tcm4TlvDq8ikWAM"
+  );
 }
 
 function sanitizeNormalizedBoundingBox(box) {
@@ -247,7 +336,7 @@ async function lavaForward(providerUrl, body, extraHeaders = {}) {
 app.post("/api/detect-and-script", async (req, res) => {
   const {
     imageBase64,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
   if (!imageBase64)
@@ -310,15 +399,7 @@ app.post("/api/speak", async (req, res) => {
   const { text, voiceId: customVoiceId, language } = req.body;
   if (!text) return res.status(400).json({ error: "text required" });
 
-  const targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese";
-  const isTargetLanguage =
-    language &&
-    language.trim().toLowerCase() === targetLanguage.trim().toLowerCase();
-  const voiceId =
-    customVoiceId ||
-    (isTargetLanguage ? "e06XicPETIbfUaeHM9zH" : null) ||
-    process.env.ELEVENLABS_VOICE_ID ||
-    "21m00Tcm4TlvDq8ikWAM";
+  const voiceId = customVoiceId || resolveVoiceIdForLanguage(language);
   const elUrl = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
 
   try {
@@ -349,7 +430,7 @@ app.post("/api/check-answer", async (req, res) => {
   const {
     guess,
     correctObject,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -392,7 +473,7 @@ Respond ONLY with JSON: { "correct": true|false, "feedback": "short encouraging 
 // ─── POST /api/phone-start ────────────────────────────────────────────────────
 app.post("/api/phone-start", async (req, res) => {
   const {
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -406,12 +487,17 @@ Use this exact object in ${nativeLanguage}: "${targetObject}".
 
 Tasks:
 1. Translate "${targetObject}" to ${targetLanguage}.
-2. Write one friendly opening line in ${nativeLanguage} from "${friendName}" that asks whether to continue in ${nativeLanguage} or ${targetLanguage}.
+2. Write one short, natural opener from "${friendName}" in a mixed style:
+   - mostly ${nativeLanguage} with a little ${targetLanguage}
+   - says: "I need your help finding something"
+   - says they may switch between ${nativeLanguage} and ${targetLanguage}
+   - directly asks user to find the object using the ${targetLanguage} term.
+3. Do NOT ask the user to choose a language.
 
 Respond ONLY with valid JSON (no markdown fences):
 {
   "targetObjectTranslated": "object name in ${targetLanguage}",
-  "script": "opening script in ${nativeLanguage}"
+  "script": "opening script in mixed ${nativeLanguage}+${targetLanguage}"
 }`;
 
   try {
@@ -438,7 +524,7 @@ Respond ONLY with valid JSON (no markdown fences):
       targetObjectTranslated: parsed.targetObjectTranslated || targetObject,
       script:
         parsed.script ||
-        `Hey, it's ${friendName}. Should I speak in ${nativeLanguage} or ${targetLanguage}?`,
+        `Hey, I need your help finding something. I might switch between ${nativeLanguage} and ${targetLanguage} a bit. Can you find my ${parsed.targetObjectTranslated || targetObject}?`,
     };
 
     console.log(
@@ -458,7 +544,7 @@ app.post("/api/phone-reply", async (req, res) => {
     friendName,
     targetObject,
     targetObjectTranslated,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -471,7 +557,7 @@ Their reply was: "${transcript}"
    - "english_practice" if chosen language is ${nativeLanguage}
    - "find_requested" if chosen language is ${targetLanguage}
 3. Write a follow-up script from "${friendName}" in the CHOSEN language:
-   - If gameMode is "find_requested": ask the user to find your missing object now. Use "${targetObjectTranslated}" when speaking ${targetLanguage}.
+   - If gameMode is "find_requested": in ${targetLanguage}, ask the user to help find your missing object now. Use "${targetObjectTranslated}" naturally, and do NOT ask them to do vocabulary quiz.
    - If gameMode is "english_practice": ask them to show any object in front of the camera, because you'll test their ${targetLanguage} vocabulary for that object.
 
 Respond ONLY with valid JSON (no markdown fences):
@@ -502,7 +588,7 @@ Respond ONLY with valid JSON (no markdown fences):
     const fallbackScript =
       gameMode === "english_practice"
         ? `Great, let's speak in ${nativeLanguage}. Show me any object in front of you and I'll ask you its ${targetLanguage} word.`
-        : `Perfeito, vamos em ${targetLanguage}. Preciso achar meu ${targetObjectTranslated} agora. Pode me ajudar?`;
+        : `Let's continue in ${targetLanguage}. I need help finding my ${targetObjectTranslated}. Can you help me now?`;
 
     res.json({
       chosenLanguage: chosenLanguageNorm,
@@ -529,7 +615,7 @@ app.post("/api/phone-yap", async (req, res) => {
     visibleObjects = [],
     focusObject = "",
     noObjectRounds = 0,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -543,6 +629,8 @@ app.post("/api/phone-yap", async (req, res) => {
     : [];
   const cleanFocusObject =
     typeof focusObject === "string" ? focusObject.trim() : "";
+  const targetForPreferredLanguage =
+    preferredLanguage === targetLanguage ? targetObjectTranslated : targetObject;
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
   const prompt =
     gameMode === "english_practice"
@@ -568,7 +656,7 @@ Respond ONLY with valid JSON:
   "teachingTranslation": "that object in ${targetLanguage} or empty string"
 }`
       : `You are "${friendName}", on a fun live call while user searches for your "${targetObject}".
-Speak in: ${preferredLanguage}.
+Speak in a mixed style: mostly ${nativeLanguage} with a little ${targetLanguage}.
 
 Context:
 - Target object in ${nativeLanguage}: ${targetObject}
@@ -579,14 +667,14 @@ Context:
 
 Instructions:
 1. Keep it conversational, short (max 24 words), and encouraging.
-2. If focus object exists and it is NOT "${targetObject}", teach the user:
-   "${cleanFocusObject || "that object"} in ${targetLanguage} is <translation>".
-3. If no object is visible, briefly explain why finding "${targetObject}" matters.
-4. Gently guide them back to finding "${targetObject}".
+2. If focus object exists and it is NOT "${targetObject}", clearly say this is not the right object and redirect them to "${targetForPreferredLanguage}".
+3. Briefly describe "${targetForPreferredLanguage}" in everyday terms (shape, typical look, use) and why you need it.
+4. If no object is visible, keep yapping with a human reason why you need "${targetForPreferredLanguage}" and encourage them.
+5. Always include at least one short ${targetLanguage} phrase naturally.
 
 Respond ONLY with valid JSON:
 {
-  "script": "one short line in ${preferredLanguage}",
+  "script": "one short line in mixed ${nativeLanguage}+${targetLanguage}",
   "teachingObject": "non-target object you taught or empty string",
   "teachingTranslation": "that object's ${targetLanguage} word or empty string"
 }`;
@@ -602,8 +690,8 @@ Respond ONLY with valid JSON:
     const parsed = parseModelJsonSafe(text, "phone-yap");
     const fallbackScript =
       gameMode === "english_practice"
-        ? "Show me any object in front of your camera and I will quiz you on the Portuguese word."
-        : `I can see a few things around you. Keep looking for the ${targetObject}!`;
+        ? `Show me any object in front of your camera and I will quiz you on the ${targetLanguage} word.`
+      : `Not that one yet. I still need ${targetObjectTranslated}. Keep looking, please.`;
 
     res.json({
       script:
@@ -635,7 +723,7 @@ app.post("/api/phone-interrupt", async (req, res) => {
     gameMode = "find_requested",
     chosenLanguage,
     visibleObjects = [],
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -649,6 +737,8 @@ app.post("/api/phone-interrupt", async (req, res) => {
   const visibleList = Array.isArray(visibleObjects)
     ? visibleObjects.filter((v) => typeof v === "string").slice(0, 8)
     : [];
+  const targetForPreferredLanguage =
+    preferredLanguage === targetLanguage ? targetObjectTranslated : targetObject;
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
   const prompt =
@@ -674,7 +764,7 @@ Respond ONLY with valid JSON:
 }`
       : `You are "${friendName}" speaking in a live call.
 User just interrupted and said: "${transcript}".
-Speak in: ${preferredLanguage}.
+Speak in a mixed style: mostly ${nativeLanguage} with a little ${targetLanguage}.
 
 Context:
 - You are trying to find "${targetObject}" (${targetObjectTranslated} in ${targetLanguage}).
@@ -683,12 +773,14 @@ Context:
 Instructions:
 1. Reply naturally to the user's interruption/question.
 2. Be warm, concise, and conversational.
-3. Gently bring them back to finding "${targetObject}".
-4. Max 26 words.
+3. If they show or mention the wrong item, say it's not the right one and guide them back to "${targetForPreferredLanguage}".
+4. Mention one simple clue for how "${targetForPreferredLanguage}" usually looks or is used.
+5. Include at least one short ${targetLanguage} phrase naturally.
+5. Max 26 words.
 
 Respond ONLY with valid JSON:
 {
-  "script": "short response in ${preferredLanguage}"
+  "script": "short mixed-language response"
 }`;
 
   try {
@@ -705,7 +797,7 @@ Respond ONLY with valid JSON:
         parsed.script ||
         (gameMode === "english_practice"
           ? `Great question. Keep showing objects and let's practice ${targetLanguage} words together.`
-          : `Good question. Let's keep going, we still need the ${targetObject}.`),
+          : `Good question. We still need ${targetObjectTranslated}. Let's keep looking.`),
     });
   } catch (err) {
     console.error("phone-interrupt error:", err.message);
@@ -718,7 +810,7 @@ app.post("/api/phone-english-prompt", async (req, res) => {
   const {
     friendName,
     objectName,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -776,7 +868,7 @@ app.post("/api/phone-english-evaluate", async (req, res) => {
     objectName,
     objectTranslated,
     guess,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -839,7 +931,7 @@ app.post("/api/phone-struggle", async (req, res) => {
   const {
     friendName,
     targetObject,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
   } = req.body;
 
@@ -884,7 +976,7 @@ app.post("/api/phone-found", async (req, res) => {
     targetObject,
     targetObjectTranslated,
     chosenLanguage,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
+    targetLanguage = process.env.TARGET_LANGUAGE || "Indonesian",
     nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
     struggled = false,
   } = req.body;
@@ -896,7 +988,7 @@ If the chosen language was ${nativeLanguage} (or if struggled=true):
 Write a script from ${friendName} saying: "Nice, thank you! Just to let you know the ${targetLanguage} word for this object is ${targetObjectTranslated}, so next time you know what I need from you!"
 
 If the chosen language was ${targetLanguage} and struggled=false:
-Write a script in ${targetLanguage} saying: "Nice, thanks so much!" and complimenting them.
+Write a short mixed ${nativeLanguage}+${targetLanguage} line thanking and congratulating the user for finding "${targetObjectTranslated}", then say you gotta go now.
 
 The chosen language was ${chosenLanguage} and struggled is ${struggled}.
 
@@ -925,6 +1017,111 @@ Respond ONLY with valid JSON (no markdown fences):
     res.json(JSON.parse(text));
   } catch (err) {
     console.error("phone-found error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/phone-semantic-match ─────────────────────────────────────────
+// Text-only Gemini check to forgive near-synonym object labels from CV.
+app.post("/api/phone-semantic-match", async (req, res) => {
+  const { targetObject, candidates } = req.body || {};
+  if (!targetObject || !Array.isArray(candidates)) {
+    return res.status(400).json({ error: "targetObject and candidates[] required" });
+  }
+
+  const cleanCandidates = candidates
+    .filter((v) => typeof v === "string")
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .slice(0, 10);
+  if (cleanCandidates.length === 0) {
+    return res.json({
+      matched: false,
+      matchedCandidate: "",
+      confidence: 0,
+      reason: "No candidates provided",
+      modelUsed: "none",
+    });
+  }
+
+  const cacheKey = `${normText(targetObject)}::${cleanCandidates
+    .map((v) => normText(v))
+    .join("|")}`;
+  const cached = semanticCacheGet(cacheKey);
+  if (cached) return res.json(cached);
+
+  const modelName = process.env.GEMINI_SEMANTIC_MODEL || "gemini-2.0-flash";
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const prompt = `You are validating object-label similarity for a camera game.
+
+Target object label: "${targetObject}"
+Candidate labels detected by CV: ${cleanCandidates.join(", ")}
+
+Goal:
+- Decide if ANY candidate can reasonably mean the same physical object as the target in everyday usage.
+
+Rules:
+- Accept common synonyms, regional variants, and naming style differences.
+- Example accepted: mobile phone, cellphone, handphone, smartphone.
+- Reject candidates that are genuinely different object categories.
+- If matched, choose the single best candidate from the provided list.
+
+Respond ONLY with valid JSON:
+{
+  "matched": true|false,
+  "matchedCandidate": "exact candidate string from the list or empty",
+  "confidence": 0.0,
+  "reason": "short reason"
+}`;
+
+  try {
+    const geminiRes = await lavaForward(geminiUrl, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: 180,
+      },
+    });
+
+    const data = await geminiRes.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    const parsed = parseModelJsonSafe(text, "phone-semantic-match");
+
+    const requestedCandidate =
+      typeof parsed?.matchedCandidate === "string" ? parsed.matchedCandidate.trim() : "";
+    const normalizedRequested = normText(requestedCandidate);
+    const chosenCandidate =
+      cleanCandidates.find((c) => normText(c) === normalizedRequested) ||
+      cleanCandidates.find((c) => {
+        const n = normText(c);
+        return n && normalizedRequested && (n.includes(normalizedRequested) || normalizedRequested.includes(n));
+      }) ||
+      "";
+    const confidence = clamp(Number(parsed?.confidence) || 0, 0, 1);
+    const minSemanticConfidence = clamp(
+      Number(process.env.SEMANTIC_MATCH_MIN_CONFIDENCE) || 0.7,
+      0,
+      1,
+    );
+    const matched = Boolean(parsed?.matched) && Boolean(chosenCandidate) && confidence >= minSemanticConfidence;
+
+    const response = {
+      matched,
+      matchedCandidate: matched ? chosenCandidate : "",
+      confidence: matched ? confidence : 0,
+      reason:
+        typeof parsed?.reason === "string" && parsed.reason.trim()
+          ? parsed.reason.trim()
+          : matched
+            ? "Semantic synonym accepted"
+            : "No reliable semantic match",
+      modelUsed: modelName,
+    };
+
+    semanticCacheSet(cacheKey, response);
+    res.json(response);
+  } catch (err) {
+    console.error("phone-semantic-match error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1108,6 +1305,87 @@ Respond ONLY with valid JSON (no markdown fences):
     res.json(response);
   } catch (err) {
     console.error("phone-check-cv error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/phone-transcribe ──────────────────────────────────────────────
+// Gemini-based speech-to-text for short microphone chunks.
+app.post("/api/phone-transcribe", async (req, res) => {
+  const {
+    audioBase64,
+    mimeType = "audio/webm",
+    languageHint = "en-US",
+    context = "general",
+  } = req.body || {};
+
+  if (!audioBase64 || typeof audioBase64 !== "string") {
+    return res.status(400).json({ error: "audioBase64 required" });
+  }
+
+  const modelName = process.env.GEMINI_STT_MODEL || "gemini-2.0-flash";
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+
+  const prompt = `You are a speech-to-text engine.
+Transcribe the user's short microphone audio exactly.
+
+Rules:
+- Language hint: ${languageHint}
+- Context: ${context}
+- Output plain words only (no commentary).
+- If speech is unclear or silence, return an empty transcript.
+
+Respond ONLY with valid JSON:
+{
+  "transcript": "recognized speech or empty string"
+}`;
+
+  try {
+    const geminiRes = await lavaForward(geminiUrl, {
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: audioBase64,
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: 128,
+      },
+    });
+
+    const data = await geminiRes.json();
+    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!rawText) {
+      return res.json({ transcript: "", modelUsed: modelName });
+    }
+
+    let transcript = "";
+    try {
+      const parsed = parseModelJsonSafe(rawText, "phone-transcribe");
+      transcript =
+        typeof parsed?.transcript === "string" ? parsed.transcript.trim() : "";
+    } catch (jsonErr) {
+      // Fallback: treat model output as raw transcript text.
+      transcript = String(rawText)
+        .replace(/^"+|"+$/g, "")
+        .replace(/^transcript\s*:\s*/i, "")
+        .trim();
+    }
+
+    res.json({
+      transcript,
+      modelUsed: modelName,
+    });
+  } catch (err) {
+    console.error("phone-transcribe error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

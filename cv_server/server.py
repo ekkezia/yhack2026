@@ -15,7 +15,7 @@ app = Flask(__name__)
 CORS(app)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-YOLO_MODEL_NAME = os.getenv("YOLO_MODEL", "yolov8n.pt")
+YOLO_MODEL_NAME = os.getenv("YOLO_MODEL", "yolov8m.pt")
 YOLO_CONF_THRESHOLD = float(os.getenv("YOLO_CONF_THRESHOLD", "0.2"))
 YOLO_TARGET_MATCH_THRESHOLD = float(os.getenv("YOLO_TARGET_MATCH_THRESHOLD", "0.32"))
 YOLO_MAX_OBJECTS = int(os.getenv("YOLO_MAX_OBJECTS", "8"))
@@ -27,25 +27,6 @@ _model_path = Path(YOLO_MODEL_NAME)
 if not _model_path.is_absolute():
     _model_path = SCRIPT_DIR / _model_path
 _model = YOLO(str(_model_path))
-
-TARGET_ALIASES = {
-    "water bottle": ["bottle", "water bottle"],
-    "remote control": ["remote", "remote control"],
-    "headphones": ["headphones", "headset", "earphones"],
-    "glasses": ["glasses", "sunglasses", "eyeglasses"],
-    "keys": ["keys", "key"],
-    "shoe": ["shoe", "shoes", "sneaker", "boot", "sandals"],
-    "wallet": ["wallet", "purse"],
-    "backpack": ["backpack", "bag"],
-    "laptop": ["laptop", "computer"],
-    "mug": ["mug", "cup"],
-    "banana": ["banana"],
-    "apple": ["apple"],
-    "plate": ["plate", "dish"],
-    "book": ["book"],
-    "toothbrush": ["toothbrush", "tooth brush"],
-}
-
 
 def norm_text(value: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", "", (value or "").lower()).strip()
@@ -89,14 +70,13 @@ def build_target_aliases(target_object: str) -> List[str]:
     if not base:
         return []
 
+    # Keep YOLO-side matching strict/lightweight.
+    # Semantic forgiveness (e.g., handphone ~= mobile phone) is handled by Gemini.
     aliases = {base}
     if base.endswith("s"):
         aliases.add(base[:-1])
     else:
         aliases.add(f"{base}s")
-
-    for extra in TARGET_ALIASES.get(base, []):
-        aliases.add(norm_text(extra))
 
     return [a for a in aliases if a]
 

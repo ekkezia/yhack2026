@@ -2,6 +2,14 @@ const BASE = "/api";
 const CV_BASE = import.meta.env.VITE_CV_API_BASE || "/cvapi";
 let hasWarnedYoloFallback = false;
 
+function normText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function parseResponse(res, endpoint) {
   const text = await res.text();
   if (!res.ok) {
@@ -260,6 +268,26 @@ export async function phoneFound(
   return parseResponse(res, "phone-found");
 }
 
+// Gemini STT: transcribe short mic audio chunk
+export async function phoneTranscribe({
+  audioBase64,
+  mimeType = "audio/webm",
+  languageHint = "en-US",
+  context = "general",
+} = {}) {
+  const res = await fetch(`${BASE}/phone-transcribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      audioBase64,
+      mimeType,
+      languageHint,
+      context,
+    }),
+  });
+  return parseResponse(res, "phone-transcribe");
+}
+
 async function yoloCheckCv(imageBase64, targetObject) {
   const res = await fetch(`${CV_BASE}/detect`, {
     method: "POST",
@@ -278,11 +306,101 @@ async function geminiCheckCv(imageBase64, targetObject) {
   return parseResponse(res, "phone-check-cv");
 }
 
+async function phoneSemanticMatch(targetObject, candidates = []) {
+  const res = await fetch(`${BASE}/phone-semantic-match`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ targetObject, candidates }),
+  });
+  return parseResponse(res, "phone-semantic-match");
+}
+
 // Check CV: use YOLO server first, then fall back to Gemini CV route
 export async function phoneCheckCv(imageBase64, targetObject) {
   try {
     const yolo = await yoloCheckCv(imageBase64, targetObject);
-    return yolo;
+
+    const visibleDetections = Array.isArray(yolo?.visibleObjectDetections)
+      ? yolo.visibleObjectDetections
+      : [];
+    const candidateNames = [
+      ...(typeof yolo?.detectedObject === "string" ? [yolo.detectedObject] : []),
+      ...visibleDetections.map((d) => d?.name).filter(Boolean),
+    ].filter(Boolean);
+    const seen = new Set();
+    const uniqueCandidates = candidateNames.filter((name) => {
+      const key = normText(name);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    if (uniqueCandidates.length === 0) {
+      return {
+        ...yolo,
+        found: false,
+        modelFound: false,
+        matchType: "none",
+        detectedObject: "",
+      };
+    }
+
+    try {
+      const semantic = await phoneSemanticMatch(targetObject, uniqueCandidates);
+      const matchedCandidate =
+        typeof semantic?.matchedCandidate === "string"
+          ? semantic.matchedCandidate.trim()
+          : "";
+      const targetDet =
+        visibleDetections.find((d) => normText(d?.name) === normText(matchedCandidate)) ||
+        visibleDetections.find((d) => {
+          const dn = normText(d?.name);
+          const mc = normText(matchedCandidate);
+          return dn && mc && (dn.includes(mc) || mc.includes(dn));
+        }) ||
+        null;
+
+      const semanticConfidence = Number(semantic?.confidence);
+      const confidence = Number.isFinite(semanticConfidence)
+        ? Math.max(0, Math.min(1, semanticConfidence))
+        : Number(yolo?.confidence) || 0;
+
+      if (semantic?.matched && matchedCandidate) {
+        const upgraded = {
+          ...yolo,
+          found: true,
+          modelFound: true,
+          confidence: Math.max(0.75, confidence),
+          matchType: "semantic_match",
+          detectedObject: targetDet?.name || matchedCandidate,
+          targetBoundingBox: targetDet?.boundingBox || yolo?.targetBoundingBox || null,
+          evidence: `${yolo?.evidence || "YOLO candidate detected"}; semantic match accepted (${semantic?.reason || "Gemini semantic decision"}).`,
+          modelUsed: `${yolo?.modelUsed || "yolo"} + ${semantic?.modelUsed || "gemini-semantic"}`,
+        };
+        console.log("[CV Semantic Match]", {
+          targetObject,
+          matchedCandidate: upgraded.detectedObject,
+          confidence: upgraded.confidence,
+          evidence: upgraded.evidence,
+        });
+        return upgraded;
+      }
+
+      return {
+        ...yolo,
+        found: false,
+        modelFound: false,
+        confidence: 0,
+        matchType: "none",
+        detectedObject: "",
+        targetBoundingBox: null,
+        evidence: `${yolo?.evidence || "YOLO candidate detected"}; semantic check says no match (${semantic?.reason || "Gemini semantic decision"}).`,
+        modelUsed: `${yolo?.modelUsed || "yolo"} + ${semantic?.modelUsed || "gemini-semantic"}`,
+      };
+    } catch (semanticErr) {
+      console.warn("Semantic match check failed; falling back to Gemini CV:", semanticErr);
+      return geminiCheckCv(imageBase64, targetObject);
+    }
   } catch (yoloErr) {
     if (!hasWarnedYoloFallback) {
       console.warn("YOLO CV unavailable, falling back to Gemini CV:", yoloErr);

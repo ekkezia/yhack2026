@@ -1,23 +1,29 @@
 import { useEffect, useRef, forwardRef } from 'react';
 
-// CameraView: fullscreen video feed optimised for mobile (back camera preferred)
-const CameraView = forwardRef(function CameraView({ onReady, onError }, ref) {
+const CameraView = forwardRef(function CameraView({ onReady, onError, facingMode = 'environment' }, ref) {
   const localRef = useRef(null);
   const videoRef = ref || localRef;
 
   useEffect(() => {
     let stream = null;
+    let cancelled = false;
 
     async function startCamera() {
+      // Stop existing stream before switching
+      if (videoRef.current?.srcObject) {
+        videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
+        videoRef.current.srcObject = null;
+      }
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: { ideal: 'environment' }, // back camera on mobile
+            facingMode: { ideal: facingMode },
             width: { ideal: 1280 },
             height: { ideal: 720 },
           },
           audio: false,
         });
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.onloadedmetadata = () => {
@@ -26,16 +32,17 @@ const CameraView = forwardRef(function CameraView({ onReady, onError }, ref) {
           };
         }
       } catch (err) {
-        onError?.(err);
+        if (!cancelled) onError?.(err);
       }
     }
 
     startCamera();
 
     return () => {
+      cancelled = true;
       stream?.getTracks().forEach((t) => t.stop());
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [facingMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <video

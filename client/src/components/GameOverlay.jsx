@@ -55,6 +55,22 @@ export default function GameOverlay({
   );
 }
 
+function getSpeechLocale(targetLanguage) {
+  const raw = String(targetLanguage || "").toLowerCase().trim();
+  if (
+    raw.includes("indones") ||
+    raw.includes("bahasa indonesia") ||
+    raw.includes("bahasa")
+  ) {
+    return "id-ID";
+  }
+  if (raw.includes("portugu")) return "pt-BR";
+  if (raw.includes("spanish") || raw.includes("espanol") || raw.includes("espanhol")) {
+    return "es-ES";
+  }
+  return "en-US";
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function StillProgress({ progress }) {
@@ -92,7 +108,7 @@ function GuessPanel({
     }
 
     const recognition = new SpeechRecognition();
-    recognition.lang = targetLanguage === "Portuguese" ? "pt-BR" : "en-US";
+    recognition.lang = getSpeechLocale(targetLanguage);
     recognition.continuous = false;
     recognition.interimResults = false;
 
