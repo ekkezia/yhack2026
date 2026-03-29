@@ -1,4 +1,4 @@
-const BASE = "/api";
+const BASE = import.meta.env.VITE_API_BASE || "/api";
 const CV_BASE = import.meta.env.VITE_CV_API_BASE || "/cvapi";
 let hasWarnedYoloFallback = false;
 
