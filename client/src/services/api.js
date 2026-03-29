@@ -336,29 +336,20 @@ export async function phoneCheckCv(imageBase64, targetObject) {
     });
 
     if (uniqueCandidates.length === 0) {
-      return {
-        ...yolo,
-        found: false,
-        modelFound: false,
-        matchType: "none",
-        detectedObject: "",
-      };
+      return { ...yolo, found: false, modelFound: false, matchType: "none", detectedObject: "" };
     }
 
     try {
       const semantic = await phoneSemanticMatch(targetObject, uniqueCandidates);
       const matchedCandidate =
-        typeof semantic?.matchedCandidate === "string"
-          ? semantic.matchedCandidate.trim()
-          : "";
+        typeof semantic?.matchedCandidate === "string" ? semantic.matchedCandidate.trim() : "";
       const targetDet =
         visibleDetections.find((d) => normText(d?.name) === normText(matchedCandidate)) ||
         visibleDetections.find((d) => {
           const dn = normText(d?.name);
           const mc = normText(matchedCandidate);
           return dn && mc && (dn.includes(mc) || mc.includes(dn));
-        }) ||
-        null;
+        }) || null;
 
       const semanticConfidence = Number(semantic?.confidence);
       const confidence = Number.isFinite(semanticConfidence)
@@ -366,7 +357,7 @@ export async function phoneCheckCv(imageBase64, targetObject) {
         : Number(yolo?.confidence) || 0;
 
       if (semantic?.matched && matchedCandidate) {
-        const upgraded = {
+        return {
           ...yolo,
           found: true,
           modelFound: true,
@@ -377,13 +368,6 @@ export async function phoneCheckCv(imageBase64, targetObject) {
           evidence: `${yolo?.evidence || "YOLO candidate detected"}; semantic match accepted (${semantic?.reason || "Gemini semantic decision"}).`,
           modelUsed: `${yolo?.modelUsed || "yolo"} + ${semantic?.modelUsed || "gemini-semantic"}`,
         };
-        console.log("[CV Semantic Match]", {
-          targetObject,
-          matchedCandidate: upgraded.detectedObject,
-          confidence: upgraded.confidence,
-          evidence: upgraded.evidence,
-        });
-        return upgraded;
       }
 
       return {

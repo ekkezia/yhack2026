@@ -22,6 +22,21 @@ const FIND_REQUESTED_MODE = "find_requested";
 const MAX_FIND_FAIL_ROUNDS = 4;
 const SHOW_BBOX = false;
 
+function getCallerLocation(language) {
+  const lang = String(language || "").toLowerCase().trim();
+  if (lang.includes("indones")) return "Indonesia";
+  if (lang.includes("portugu")) return "Brazil";
+  if (lang.includes("spanish") || lang.includes("espanol")) return "Spain";
+  if (lang.includes("french") || lang.includes("français")) return "France";
+  if (lang.includes("japanese") || lang.includes("nihon")) return "Japan";
+  if (lang.includes("korean")) return "South Korea";
+  if (lang.includes("mandarin") || lang.includes("chinese")) return "China";
+  if (lang.includes("german") || lang.includes("deutsch")) return "Germany";
+  if (lang.includes("italian")) return "Italy";
+  if (lang.includes("arabic")) return "UAE";
+  return language || "";
+}
+
 function normText(value) {
   return String(value || "")
     .toLowerCase()
@@ -194,6 +209,7 @@ export default function App() {
   const [audioPrimed, setAudioPrimed] = useState(false);
   const [cvDebug, setCvDebug] = useState(null);
   const [learnedWords, setLearnedWords] = useState([]);
+  const [wordImages, setWordImages] = useState({});
 
   const isSearchingRef = useRef(false);
   const searchStartTimeRef = useRef(0);
@@ -376,6 +392,35 @@ export default function App() {
     } catch (err) {
       console.warn("Failed to persist learned words:", err);
     }
+  }, [learnedWords]);
+
+  useEffect(() => {
+    const today = new Date();
+    const uniqueWords = [...new Set(
+      learnedWords
+        .filter(w => w?.nativeWord && isSameLocalDay(w.learnedAt, today))
+        .map(w => w.nativeWord.toLowerCase().trim())
+    )];
+    uniqueWords.forEach(async (word) => {
+      if (wordImages[word]) return;
+      try {
+        const apiBase = import.meta.env.VITE_API_BASE || "/api";
+        const res = await fetch(`${apiBase}/generate-word-image`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ word }),
+        });
+        if (!res.ok) {
+          const err = await res.text();
+          console.error(`[wordImage] ${word} failed ${res.status}:`, err);
+          return;
+        }
+        const { imageBase64, mimeType } = await res.json();
+        setWordImages(prev => ({ ...prev, [word]: `data:${mimeType};base64,${imageBase64}` }));
+      } catch (err) {
+        console.error(`[wordImage] ${word} error:`, err);
+      }
+    });
   }, [learnedWords]);
 
   const addLearnedWord = useCallback(
@@ -1554,16 +1599,37 @@ export default function App() {
                     gap: 10,
                   }}
                 >
-                  <div style={{
-                    width: 36, height: 36, borderRadius: 10,
-                    background: entry.guessed === false
-                      ? "linear-gradient(135deg, #f43f5e, #fb7185)"
-                      : "linear-gradient(135deg, #22c55e, #4ade80)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 18, flexShrink: 0,
-                    color: 'white',
-                  }}>
-                    {entry.guessed === false ? "✘" : "✔"}
+                  <div style={{ position: "relative", width: 36, height: 36, flexShrink: 0 }}>
+                    {wordImages[entry.nativeWord?.toLowerCase().trim()] ? (
+                      <img
+                        src={wordImages[entry.nativeWord.toLowerCase().trim()]}
+                        alt={entry.nativeWord}
+                        style={{ width: 36, height: 36, borderRadius: 10, objectFit: "cover" }}
+                      />
+                    ) : (
+                      <div style={{
+                        width: 36, height: 36, borderRadius: 10,
+                        background: entry.guessed === false
+                          ? "linear-gradient(135deg, #f43f5e, #fb7185)"
+                          : "linear-gradient(135deg, #22c55e, #4ade80)",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 18, color: "white",
+                      }}>
+                        {entry.guessed === false ? "✘" : "✔"}
+                      </div>
+                    )}
+                    {wordImages[entry.nativeWord?.toLowerCase().trim()] && (
+                      <div style={{
+                        position: "absolute", bottom: -3, right: -3,
+                        width: 14, height: 14, borderRadius: "50%",
+                        background: entry.guessed === false ? "#f43f5e" : "#22c55e",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 8, color: "white", fontWeight: 700,
+                        border: "1.5px solid rgba(0,0,0,0.3)",
+                      }}>
+                        {entry.guessed === false ? "✘" : "✔"}
+                      </div>
+                    )}
                   </div>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: 0.1 }}>
@@ -1627,6 +1693,7 @@ export default function App() {
                 <h2 className="ios-caller-name">
                   {incomingCallData?.friendName || "Incoming Call"} ❤️
                 </h2>
+                <p className="ios-caller-status">{getCallerLocation(TARGET_LANGUAGE)}</p>
                 <p className="ios-caller-status">simp Video</p>
               </div>
 
@@ -1672,16 +1739,6 @@ export default function App() {
 
               {/* Mid status hints */}
               <div className="facetime-status">
-                {phase === "listening_preference" && (
-                  <span className="facetime-status-pill pulse">
-                    🎙️ Listening...
-                  </span>
-                )}
-                {phase === "listening_object_guess" && (
-                  <span className="facetime-status-pill pulse">
-                    {`🎙️ Say the ${TARGET_LANGUAGE} word`}
-                  </span>
-                )}
                 {phase === "processing_preference" && (
                   <span className="facetime-status-pill">Thinking...</span>
                 )}
@@ -1692,9 +1749,7 @@ export default function App() {
                   <span className="facetime-status-pill pulse">🗣️ Speaking...</span>
                 )}
                 {phase === "searching" && (
-                  <span className="facetime-status-pill pulse">
-                    {isListening ? "🎙️ Listening..." : "👀 Searching..."}
-                  </span>
+                  <span className="facetime-status-pill pulse">👀 Searching...</span>
                 )}
                 {phase === "error" && (
                   <span className="facetime-status-pill" style={{ background: "rgba(244,63,94,0.8)" }}>

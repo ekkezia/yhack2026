@@ -23,7 +23,6 @@ const FRIEND_NAMES = [
 ];
 
 const TARGET_OBJECTS = [
-  "water bottle",
   "trash bin",
   "plant",
   "handphone",
@@ -37,6 +36,7 @@ const TARGET_OBJECTS = [
 
 let lastPhoneTargetObject = null;
 const semanticMatchCache = new Map();
+const wordImageCache = new Map();
 const SEMANTIC_MATCH_CACHE_MAX = Number(process.env.SEMANTIC_MATCH_CACHE_MAX || 300);
 
 function pickRandomFrom(list) {
@@ -489,9 +489,8 @@ Tasks:
 1. Translate "${targetObject}" to ${targetLanguage}.
 2. Write one short, natural opener from "${friendName}" in a mixed style:
    - starts with "Hi babe!"
-   - mostly ${nativeLanguage} with a little ${targetLanguage}
+   - 85% ${nativeLanguage}, 15% ${targetLanguage} (naturally weave in a few ${targetLanguage} words/phrases)
    - says: "I need your help finding something"
-   - says they may switch between ${nativeLanguage} and ${targetLanguage}
    - directly asks user to find the object using the ${targetLanguage} term.
 3. Do NOT ask the user to choose a language.
 
@@ -657,7 +656,7 @@ Respond ONLY with valid JSON:
   "teachingTranslation": "that object in ${targetLanguage} or empty string"
 }`
       : `You are "${friendName}", on a fun live call while user searches for your "${targetObject}".
-Speak in a mixed style: mostly ${nativeLanguage} with a little ${targetLanguage}.
+Speak in a mixed style: 70% ${nativeLanguage}, 30% ${targetLanguage} — naturally weave in ${targetLanguage} words and short phrases.
 
 Context:
 - Target object in ${nativeLanguage}: ${targetObject}
@@ -765,7 +764,7 @@ Respond ONLY with valid JSON:
 }`
       : `You are "${friendName}" speaking in a live call.
 User just interrupted and said: "${transcript}".
-Speak in a mixed style: mostly ${nativeLanguage} with a little ${targetLanguage}.
+Speak in a mixed style: 70% ${nativeLanguage}, 30% ${targetLanguage} — naturally weave in ${targetLanguage} words and short phrases.
 
 Context:
 - You are trying to find "${targetObject}" (${targetObjectTranslated} in ${targetLanguage}).
@@ -989,7 +988,7 @@ If the chosen language was ${nativeLanguage} (or if struggled=true):
 Write a script from ${friendName} saying: "Nice, thank you! Just to let you know the ${targetLanguage} word for this object is ${targetObjectTranslated}, so next time you know what I need from you!"
 
 If the chosen language was ${targetLanguage} and struggled=false:
-Write a short mixed ${nativeLanguage}+${targetLanguage} line thanking and congratulating the user for finding "${targetObjectTranslated}", then say you gotta go now.
+Write a short line (70% ${nativeLanguage}, 30% ${targetLanguage}) thanking and congratulating the user for finding "${targetObjectTranslated}", then say you gotta go now.
 
 The chosen language was ${chosenLanguage} and struggled is ${struggled}.
 
@@ -1387,6 +1386,35 @@ Respond ONLY with valid JSON:
     });
   } catch (err) {
     console.error("phone-transcribe error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/generate-word-image ───────────────────────────────────────────
+app.post("/api/generate-word-image", async (req, res) => {
+  const { word } = req.body || {};
+  if (!word || typeof word !== "string") {
+    return res.status(400).json({ error: "word required" });
+  }
+  const key = word.toLowerCase().trim();
+  if (wordImageCache.has(key)) {
+    return res.json(wordImageCache.get(key));
+  }
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  try {
+    const geminiRes = await lavaForward(geminiUrl, {
+      contents: [{ parts: [{ text: `Simple flat icon of a ${key}. White background, no text, bold clear shape, sticker style, minimal.` }] }],
+      generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+    });
+    const data = await geminiRes.json();
+    console.log("[generate-word-image] raw response keys:", JSON.stringify(Object.keys(data)));
+    const part = data?.candidates?.[0]?.content?.parts?.find((p) => p.inlineData);
+    if (!part?.inlineData) throw new Error(`No image in response: ${JSON.stringify(data).slice(0, 200)}`);
+    const result = { imageBase64: part.inlineData.data, mimeType: part.inlineData.mimeType || "image/png" };
+    wordImageCache.set(key, result);
+    res.json(result);
+  } catch (err) {
+    console.error("generate-word-image error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
