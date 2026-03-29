@@ -1,6 +1,6 @@
 # S.I.M.P [Socially-Integrated Multilingual Practice]
 
-simp is a mobile-first web application that turns the physical world into a language-learning playground. It uses a camera feed to detect objects in real-time, generates contextual voice scripts in a native language (e.g., English), and challenges users to identify objects in a target language (e.g., Portuguese).
+SIMP is an interactive language-learning application that simulates real-time phone calls, guiding users through physical, context-based tasks to reinforce vocabulary through immersive, real-world interaction.
 
 ## How to run
 #### Development
