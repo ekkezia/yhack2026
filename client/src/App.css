@@ -345,6 +345,132 @@ body,
     font-size: 0.95rem;
 }
 
+/* ── Boot screen ─────────────────────────────────────────────────────────── */
+.boot-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.1rem;
+    animation: bootHelloShow 2.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+}
+
+.boot-hello {
+    font-size: clamp(3rem, 14vw, 5.5rem);
+    font-weight: 300;
+    color: white;
+    letter-spacing: -0.02em;
+    animation: bootTextIn 0.7s ease 0.3s both;
+}
+
+.boot-simp {
+    font-size: clamp(3rem, 14vw, 5.5rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #ffb3cc 20%, #e8326a);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: bootTextIn 0.7s ease 0.55s both;
+}
+
+@keyframes bootHelloShow {
+    0%   { opacity: 1; }
+    70%  { opacity: 1; }
+    100% { opacity: 0; pointer-events: none; }
+}
+
+@keyframes bootTextIn {
+    from { opacity: 0; transform: translateY(18px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Language picker ─────────────────────────────────────────────────────── */
+.boot-language-screen {
+    animation: fadeIn 0.45s ease both;
+    justify-content: flex-start;
+    padding: max(env(safe-area-inset-top, 0px), 3.5rem) 0 2rem;
+    overflow-y: auto;
+}
+
+.boot-lang-eyebrow {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.45);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+}
+
+.boot-lang-title {
+    font-size: clamp(1.9rem, 7vw, 2.5rem);
+    font-weight: 700;
+    color: white;
+    letter-spacing: -0.03em;
+    text-align: center;
+    line-height: 1.2;
+    white-space: pre-line;
+    margin-bottom: 2rem;
+    padding: 0 1.5rem;
+}
+
+.boot-lang-list {
+    width: min(92vw, 400px);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    border-radius: 14px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 180, 210, 0.12);
+}
+
+.boot-lang-row {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.95rem 1.1rem;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    color: white;
+    cursor: pointer;
+    transition: background 0.15s;
+    text-align: left;
+    width: 100%;
+}
+
+.boot-lang-row:last-child {
+    border-bottom: none;
+}
+
+.boot-lang-row:active {
+    background: rgba(232, 50, 106, 0.18);
+}
+
+.boot-lang-flag {
+    font-size: 1.6rem;
+    line-height: 1;
+}
+
+.boot-lang-name {
+    flex: 1;
+    font-size: 1.05rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+}
+
+.boot-lang-chevron {
+    font-size: 1.3rem;
+    color: rgba(255, 255, 255, 0.3);
+    font-weight: 300;
+}
+
 /* ── Animations ──────────────────────────────────────────────────────────── */
 @keyframes fadeIn {
     from {

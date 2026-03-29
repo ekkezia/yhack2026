@@ -57,17 +57,17 @@ export default function GameOverlay({
 
 function getSpeechLocale(targetLanguage) {
   const raw = String(targetLanguage || "").toLowerCase().trim();
-  if (
-    raw.includes("indones") ||
-    raw.includes("bahasa indonesia") ||
-    raw.includes("bahasa")
-  ) {
-    return "id-ID";
-  }
-  if (raw.includes("portugu")) return "pt-BR";
-  if (raw.includes("spanish") || raw.includes("espanol") || raw.includes("espanhol")) {
-    return "es-ES";
-  }
+  if (raw.includes("english"))  return "en-US";
+  if (raw.includes("indones") || raw.includes("bahasa")) return "id-ID";
+  if (raw.includes("portugu"))  return "pt-BR";
+  if (raw.includes("spanish") || raw.includes("espanol") || raw.includes("espanhol")) return "es-ES";
+  if (raw.includes("french")  || raw.includes("francais")) return "fr-FR";
+  if (raw.includes("japanese") || raw.includes("japan"))   return "ja-JP";
+  if (raw.includes("korean"))   return "ko-KR";
+  if (raw.includes("mandarin") || raw.includes("chinese")) return "zh-CN";
+  if (raw.includes("german")  || raw.includes("deutsch"))  return "de-DE";
+  if (raw.includes("italian") || raw.includes("italiano")) return "it-IT";
+  if (raw.includes("arabic"))   return "ar-SA";
   return "en-US";
 }
 

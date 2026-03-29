@@ -15,7 +15,20 @@ import {
 } from "./services/api.js";
 
 const NATIVE_LANGUAGE = "English";
-const TARGET_LANGUAGE = import.meta.env.VITE_TARGET_LANGUAGE || "Indonesian";
+const DEFAULT_TARGET_LANGUAGE = import.meta.env.VITE_TARGET_LANGUAGE || "Indonesian";
+
+const SUPPORTED_LANGUAGES = [
+  { name: "Indonesian", flag: "🇮🇩", locale: "id-ID" },
+  { name: "Portuguese", flag: "🇧🇷", locale: "pt-BR" },
+  { name: "Spanish",    flag: "🇪🇸", locale: "es-ES" },
+  { name: "French",     flag: "🇫🇷", locale: "fr-FR" },
+  { name: "Japanese",   flag: "🇯🇵", locale: "ja-JP" },
+  { name: "Korean",     flag: "🇰🇷", locale: "ko-KR" },
+  { name: "Mandarin",   flag: "🇨🇳", locale: "zh-CN" },
+  { name: "German",     flag: "🇩🇪", locale: "de-DE" },
+  { name: "Italian",    flag: "🇮🇹", locale: "it-IT" },
+  { name: "Arabic",     flag: "🇦🇪", locale: "ar-AE" },
+];
 const LEARNED_WORDS_STORAGE_KEY = "simp.learned_words_v1";
 const ENGLISH_PRACTICE_MODE = "english_practice";
 const FIND_REQUESTED_MODE = "find_requested";
@@ -93,10 +106,17 @@ function isLikelyConfusionText(text) {
 function getLanguageLocale(language, fallback = "en-US") {
   const lang = normText(language);
   if (!lang) return fallback;
-  if (lang.includes("portugu")) return "pt-BR";
-  if (lang.includes("indones")) return "id-ID";
-  if (lang.includes("english")) return "en-US";
-  if (lang.includes("spanish")) return "es-ES";
+  if (lang.includes("english"))  return "en-US";
+  if (lang.includes("indones"))  return "id-ID";
+  if (lang.includes("portugu"))  return "pt-BR";
+  if (lang.includes("spanish") || lang.includes("espanol")) return "es-ES";
+  if (lang.includes("french")  || lang.includes("francais")) return "fr-FR";
+  if (lang.includes("japanese") || lang.includes("japan"))   return "ja-JP";
+  if (lang.includes("korean"))   return "ko-KR";
+  if (lang.includes("mandarin") || lang.includes("chinese")) return "zh-CN";
+  if (lang.includes("german")  || lang.includes("deutsch"))  return "de-DE";
+  if (lang.includes("italian") || lang.includes("italiano")) return "it-IT";
+  if (lang.includes("arabic"))   return "ar-SA";
   return fallback;
 }
 
@@ -191,6 +211,8 @@ function vibrate(pattern) {
 }
 
 export default function App() {
+  const [bootPhase, setBootPhase] = useState("hello"); // "hello" | "language" | null
+  const [targetLanguage, setTargetLanguage] = useState(DEFAULT_TARGET_LANGUAGE);
   const [unlocked, setUnlocked] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const [facingMode, setFacingMode] = useState("environment");
@@ -565,7 +587,7 @@ export default function App() {
 
     (async () => {
       try {
-        const startData = await phoneStart(TARGET_LANGUAGE, NATIVE_LANGUAGE);
+        const startData = await phoneStart(targetLanguage, NATIVE_LANGUAGE);
         if (!cancelled) setIncomingCallData(startData);
       } catch (err) {
         console.error(err);
@@ -648,13 +670,13 @@ export default function App() {
     setCallDuration(0);
     try {
       const startData =
-        incomingCallData || (await phoneStart(TARGET_LANGUAGE, NATIVE_LANGUAGE));
+        incomingCallData || (await phoneStart(targetLanguage, NATIVE_LANGUAGE));
       setIncomingCallData(startData);
       setCallData({
         friendName: startData.friendName,
         targetObject: startData.targetObject,
         targetObjectTranslated: startData.targetObjectTranslated,
-        chosenLanguage: TARGET_LANGUAGE,
+        chosenLanguage: targetLanguage,
         gameMode: FIND_REQUESTED_MODE,
         struggled: false,
       });
@@ -662,7 +684,7 @@ export default function App() {
       const { audioBase64, mimeType } = await speak(
         startData.script,
         null,
-        TARGET_LANGUAGE,
+        targetLanguage,
       );
       setPhase("speaking_task");
       await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
@@ -685,7 +707,7 @@ export default function App() {
           callData.friendName,
           callData.targetObject,
           callData.targetObjectTranslated,
-          TARGET_LANGUAGE,
+          targetLanguage,
           NATIVE_LANGUAGE,
         );
 
@@ -729,7 +751,7 @@ export default function App() {
         const promptData = await phoneEnglishPrompt({
           friendName: callData.friendName,
           objectName,
-          targetLanguage: TARGET_LANGUAGE,
+          targetLanguage: targetLanguage,
           nativeLanguage: NATIVE_LANGUAGE,
         });
 
@@ -743,7 +765,7 @@ export default function App() {
         }));
         const { audioBase64, mimeType } = await speak(
           promptData?.script ||
-            `I can see a ${objectName}. How do you say ${objectName} in ${TARGET_LANGUAGE}?`,
+            `I can see a ${objectName}. How do you say ${objectName} in ${targetLanguage}?`,
           null,
           NATIVE_LANGUAGE,
         );
@@ -779,7 +801,7 @@ export default function App() {
           objectName: callData.practiceObject,
           objectTranslated: callData.practiceObjectTranslated,
           guess: spokenGuess || "",
-          targetLanguage: TARGET_LANGUAGE,
+          targetLanguage: targetLanguage,
           nativeLanguage: NATIVE_LANGUAGE,
         });
 
@@ -797,7 +819,7 @@ export default function App() {
 
         const { audioBase64, mimeType } = await speak(
           evalData?.finalScript ||
-            `${callData.practiceObject} in ${TARGET_LANGUAGE} is "${callData.practiceObjectTranslated}". Thanks for helping me, bye!`,
+            `${callData.practiceObject} in ${targetLanguage} is "${callData.practiceObjectTranslated}". Thanks for helping me, bye!`,
           null,
           NATIVE_LANGUAGE,
         );
@@ -809,7 +831,7 @@ export default function App() {
         console.error("English evaluate error:", err);
         try {
           const fallback =
-            `Thanks for helping me. ${callData.practiceObject} in ${TARGET_LANGUAGE} is "${callData.practiceObjectTranslated}". Bye!`;
+            `Thanks for helping me. ${callData.practiceObject} in ${targetLanguage} is "${callData.practiceObjectTranslated}". Bye!`;
           const { audioBase64, mimeType } = await speak(
             fallback,
             null,
@@ -842,7 +864,7 @@ export default function App() {
           visibleObjects,
           focusObject,
           noObjectRounds: noObjectRoundsRef.current,
-          targetLanguage: TARGET_LANGUAGE,
+          targetLanguage: targetLanguage,
           nativeLanguage: NATIVE_LANGUAGE,
         });
         const { audioBase64, mimeType } = await speak(
@@ -917,7 +939,7 @@ export default function App() {
           visibleObjects: (cvDebug?.visibleObjectDetections || [])
             .map((d) => d?.name)
             .filter(Boolean),
-          targetLanguage: TARGET_LANGUAGE,
+          targetLanguage: targetLanguage,
           nativeLanguage: NATIVE_LANGUAGE,
         });
 
@@ -1047,7 +1069,7 @@ export default function App() {
     (async () => {
       try {
         stopSession = await startGeminiMicSession({
-          languageHint: getLanguageLocale(TARGET_LANGUAGE, "pt-BR"),
+          languageHint: getLanguageLocale(targetLanguage, "pt-BR"),
           context: "guess_object_word",
           timesliceMs: 1500,
           onStart: () => {
@@ -1127,7 +1149,7 @@ export default function App() {
       const stData = await phoneStruggle(
         callData.friendName,
         callData.targetObject,
-        TARGET_LANGUAGE,
+        targetLanguage,
         NATIVE_LANGUAGE,
       );
 
@@ -1156,7 +1178,7 @@ export default function App() {
         callData.targetObjectTranslated,
         callData.chosenLanguage,
         struggledRef.current || callData.struggled,
-        TARGET_LANGUAGE,
+        targetLanguage,
         NATIVE_LANGUAGE,
       );
       const elapsedMs =
@@ -1192,7 +1214,7 @@ export default function App() {
       const translated = callData.targetObjectTranslated || callData.targetObject;
       const englishWord = callData.targetObject || translated;
       const revealScript =
-        `Thanks for trying. The ${TARGET_LANGUAGE} word for ${englishWord} is "${translated}". ` +
+        `Thanks for trying. The ${targetLanguage} word for ${englishWord} is "${translated}". ` +
         "Thank you anyway, I need to leave for now. Bye!";
       const elapsedMs =
         searchStartTimeRef.current > 0
@@ -1202,7 +1224,7 @@ export default function App() {
       const { audioBase64, mimeType } = await speak(
         revealScript,
         null,
-        callData?.chosenLanguage || TARGET_LANGUAGE,
+        callData?.chosenLanguage || targetLanguage,
       );
       await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
         onEnded: () => endCall(),
@@ -1240,7 +1262,7 @@ export default function App() {
     const timeoutScript =
       "Sorry, I gotta go for now, I have some stuff to do. Thanks for helping me today. Bye!";
 
-    void speak(timeoutScript, null, callData?.chosenLanguage || TARGET_LANGUAGE)
+    void speak(timeoutScript, null, callData?.chosenLanguage || targetLanguage)
       .then(({ audioBase64, mimeType }) =>
         playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
           onEnded: () => endCall(),
@@ -1461,6 +1483,42 @@ export default function App() {
     .filter((item) => isSameLocalDay(item.learnedAt, currentTime))
     .slice(-8);
 
+  // ── Boot: Hello screen ──────────────────────────────────────────────────────
+  if (bootPhase === "hello") {
+    return (
+      <div className="boot-screen" onAnimationEnd={() => setBootPhase("language")}>
+        <span className="boot-hello">Hello,</span>
+        <span className="boot-simp">Simp.</span>
+      </div>
+    );
+  }
+
+  // ── Boot: Language picker ────────────────────────────────────────────────────
+  if (bootPhase === "language") {
+    return (
+      <div className="boot-screen boot-language-screen">
+        <p className="boot-lang-eyebrow">Welcome to Simp</p>
+        <h1 className="boot-lang-title">Choose your{"\n"}language to learn</h1>
+        <div className="boot-lang-list">
+          {SUPPORTED_LANGUAGES.map((lang) => (
+            <button
+              key={lang.name}
+              className="boot-lang-row"
+              onClick={() => {
+                setTargetLanguage(lang.name);
+                setBootPhase(null);
+              }}
+            >
+              <span className="boot-lang-flag">{lang.flag}</span>
+              <span className="boot-lang-name">{lang.name}</span>
+              <span className="boot-lang-chevron">›</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       {/* iPhone-style lock screen overlay */}
@@ -1658,7 +1716,7 @@ export default function App() {
           <div style={{ flex: 1 }} />
           {/* Swipe up hint */}
           <div style={{ marginBottom: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, opacity: 0.45, letterSpacing: 0.3 }}>Swipe up to unlock</span>
+            <span style={{ fontSize: 13, opacity: 0.45, letterSpacing: 0.3 }}>Swipe up to learn</span>
             {/* iPhone home indicator */}
             <div style={{
               width: 134,
@@ -1693,7 +1751,7 @@ export default function App() {
                 <h2 className="ios-caller-name">
                   {incomingCallData?.friendName || "Incoming Call"} ❤️
                 </h2>
-                <p className="ios-caller-status">{getCallerLocation(TARGET_LANGUAGE)}</p>
+                <p className="ios-caller-status">{getCallerLocation(targetLanguage)}</p>
                 <p className="ios-caller-status">simp Video</p>
               </div>
 
@@ -1811,7 +1869,7 @@ export default function App() {
               >
                 <h2 className="ios-active-name" style={{ fontWeight: 600 }}>
                   {(callData?.gameMode || FIND_REQUESTED_MODE) === ENGLISH_PRACTICE_MODE
-                    ? `Practice: name nearby objects in ${TARGET_LANGUAGE}`
+                    ? `Practice: name nearby objects in ${targetLanguage}`
                     : SHOW_BBOX ? `Find: ${callData?.targetObject}` : "🔍 Searching..."}
                 </h2>
                 <p

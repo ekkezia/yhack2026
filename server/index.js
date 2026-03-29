@@ -85,18 +85,17 @@ function normalizeChosenLanguage(value, nativeLanguage, targetLanguage) {
 function canonicalLanguageKey(value) {
   const raw = normText(value);
   if (!raw) return "";
-  if (
-    raw.includes("indones") ||
-    raw.includes("bahasa indonesia") ||
-    raw.includes("bahasa")
-  ) {
-    return "indonesian";
-  }
+  if (raw.includes("indones") || raw.includes("bahasa")) return "indonesian";
   if (raw.includes("portugu")) return "portuguese";
-  if (raw.includes("spanish") || raw.includes("espanol") || raw.includes("espanhol")) {
-    return "spanish";
-  }
+  if (raw.includes("spanish") || raw.includes("espanol") || raw.includes("espanhol")) return "spanish";
   if (raw.includes("english") || raw.includes("inggris")) return "english";
+  if (raw.includes("french") || raw.includes("francais") || raw.includes("français")) return "french";
+  if (raw.includes("japanese") || raw.includes("nihongo") || raw.includes("japan")) return "japanese";
+  if (raw.includes("korean") || raw.includes("hangul")) return "korean";
+  if (raw.includes("mandarin") || raw.includes("chinese") || raw.includes("zhongwen")) return "mandarin";
+  if (raw.includes("german") || raw.includes("deutsch")) return "german";
+  if (raw.includes("italian") || raw.includes("italiano")) return "italian";
+  if (raw.includes("arabic") || raw.includes("arabi")) return "arabic";
   return "";
 }
 
@@ -107,22 +106,17 @@ function resolveVoiceIdForLanguage(language) {
     "21m00Tcm4TlvDq8ikWAM";
 
   const byLanguage = {
-    english:
-      process.env.VOICE_ID_ENGLISH ||
-      process.env.ELEVENLABS_VOICE_ID_ENGLISH ||
-      "",
-    spanish:
-      process.env.VOICE_ID_SPANISH ||
-      process.env.ELEVENLABS_VOICE_ID_SPANISH ||
-      "",
-    indonesian:
-      process.env.VOICE_ID_INDONESIAN ||
-      process.env.ELEVENLABS_VOICE_ID_INDONESIAN ||
-      "",
-    portuguese:
-      process.env.VOICE_ID_PORTUGUESE ||
-      process.env.ELEVENLABS_VOICE_ID_PORTUGUESE ||
-      "",
+    english:    process.env.VOICE_ID_ENGLISH    || process.env.ELEVENLABS_VOICE_ID_ENGLISH    || "",
+    indonesian: process.env.VOICE_ID_INDONESIAN || process.env.ELEVENLABS_VOICE_ID_INDONESIAN || "",
+    portuguese: process.env.VOICE_ID_PORTUGUESE || process.env.ELEVENLABS_VOICE_ID_PORTUGUESE || "",
+    spanish:    process.env.VOICE_ID_SPANISH    || process.env.ELEVENLABS_VOICE_ID_SPANISH    || "",
+    french:     process.env.VOICE_ID_FRENCH     || process.env.ELEVENLABS_VOICE_ID_FRENCH     || "",
+    japanese:   process.env.VOICE_ID_JAPANESE   || process.env.ELEVENLABS_VOICE_ID_JAPANESE   || "",
+    korean:     process.env.VOICE_ID_KOREAN     || process.env.ELEVENLABS_VOICE_ID_KOREAN     || "",
+    mandarin:   process.env.VOICE_ID_MANDARIN   || process.env.ELEVENLABS_VOICE_ID_MANDARIN   || "",
+    german:     process.env.VOICE_ID_GERMAN     || process.env.ELEVENLABS_VOICE_ID_GERMAN     || "",
+    italian:    process.env.VOICE_ID_ITALIAN    || process.env.ELEVENLABS_VOICE_ID_ITALIAN    || "",
+    arabic:     process.env.VOICE_ID_ARABIC     || process.env.ELEVENLABS_VOICE_ID_ARABIC     || "",
   };
 
   const key = canonicalLanguageKey(language);
