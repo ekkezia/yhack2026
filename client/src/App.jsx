@@ -3,21 +3,42 @@ import CameraView from "./components/CameraView.jsx";
 import {
   speak,
   phoneStart,
+  phoneConfirmLocation,
+  phonePlanDestination,
+  phoneRouteYap,
+  phoneArrived,
   phoneReply,
   phoneYap,
   phoneInterrupt,
   phoneEnglishPrompt,
   phoneEnglishEvaluate,
-  phoneStruggle,
   phoneFound,
   phoneCheckCv,
 } from "./services/api.js";
 
 const NATIVE_LANGUAGE = "English";
-const TARGET_LANGUAGE = "Portuguese";
-const LEARNED_WORDS_STORAGE_KEY = "lingualens.learned_words_v1";
+const TARGET_LANGUAGE = "English";
 const ENGLISH_PRACTICE_MODE = "english_practice";
 const FIND_REQUESTED_MODE = "find_requested";
+const TREASURE_CALL_MODE = "fitness_treasure";
+const FITNESS_PROGRESS_STORAGE_KEY = "lingualens.fitness_progress_v1";
+const TREASURE_OBJECT_POOL = [
+  "keys",
+  "mug",
+  "shoe",
+  "book",
+  "water bottle",
+  "headphones",
+  "wallet",
+  "glasses",
+  "remote control",
+  "backpack",
+  "laptop",
+  "toothbrush",
+  "plate",
+  "banana",
+  "apple",
+];
 
 function normText(value) {
   return String(value || "")
@@ -56,6 +77,50 @@ function pickPracticeObjectName(detections = []) {
     : [];
   const preferred = names.find((name) => !ignored.has(normText(name)));
   return preferred || names[0] || "";
+}
+
+function pickNextTreasureTarget(currentTarget, retrievedObjects = []) {
+  const used = new Set(
+    (Array.isArray(retrievedObjects) ? retrievedObjects : []).map((v) =>
+      normText(v),
+    ),
+  );
+  let candidates = TREASURE_OBJECT_POOL.filter(
+    (item) => normText(item) !== normText(currentTarget) && !used.has(normText(item)),
+  );
+  if (candidates.length === 0) {
+    candidates = TREASURE_OBJECT_POOL.filter(
+      (item) => normText(item) !== normText(currentTarget),
+    );
+  }
+  if (candidates.length === 0) return currentTarget || TREASURE_OBJECT_POOL[0];
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const r = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return r * c;
+}
+
+function formatRouteTimestamp(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function captureFrame(videoEl, quality = 0.8) {
@@ -103,7 +168,18 @@ export default function App() {
   const [callDuration, setCallDuration] = useState(0);
   const [audioPrimed, setAudioPrimed] = useState(false);
   const [cvDebug, setCvDebug] = useState(null);
-  const [learnedWords, setLearnedWords] = useState([]);
+  const [sessionSteps, setSessionSteps] = useState(0);
+  const [sessionRetrievedObjects, setSessionRetrievedObjects] = useState([]);
+  const [currentGps, setCurrentGps] = useState(null);
+  const [gpsDebugError, setGpsDebugError] = useState("");
+  const [routeDistanceMeters, setRouteDistanceMeters] = useState(null);
+  const [fitnessProgress, setFitnessProgress] = useState({
+    totalSteps: 0,
+    totalRetrievedObjects: [],
+    lastSessionSteps: 0,
+    lastSessionRetrievedObjects: [],
+    lastSessionRoute: null,
+  });
 
   const isSearchingRef = useRef(false);
   const searchStartTimeRef = useRef(0);
@@ -116,6 +192,13 @@ export default function App() {
   const interruptBusyRef = useRef(false);
   const lastInterruptAtRef = useRef(0);
   const englishRoundBusyRef = useRef(false);
+  const motionStepHighRef = useRef(false);
+  const lastStepAtRef = useRef(0);
+  const geoWatchIdRef = useRef(null);
+  const currentGpsRef = useRef(null);
+  const routeNoProgressRoundsRef = useRef(0);
+  const lastRouteDistanceRef = useRef(null);
+  const arrivedRef = useRef(false);
 
   const ensureAudioElement = useCallback(() => {
     if (!audioRef.current) {
@@ -187,6 +270,17 @@ export default function App() {
       audio: true,
     });
     stream.getTracks().forEach((track) => track.stop());
+
+    if (
+      typeof DeviceMotionEvent !== "undefined" &&
+      typeof DeviceMotionEvent.requestPermission === "function"
+    ) {
+      try {
+        await DeviceMotionEvent.requestPermission();
+      } catch (err) {
+        console.warn("Motion permission not granted:", err);
+      }
+    }
     return true;
   }, []);
 
@@ -220,55 +314,212 @@ export default function App() {
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(LEARNED_WORDS_STORAGE_KEY);
+      const raw = window.localStorage.getItem(FITNESS_PROGRESS_STORAGE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setLearnedWords(parsed.filter((w) => typeof w === "string"));
+      if (parsed && typeof parsed === "object") {
+        setFitnessProgress({
+          totalSteps: Number(parsed.totalSteps) || 0,
+          totalRetrievedObjects: Array.isArray(parsed.totalRetrievedObjects)
+            ? parsed.totalRetrievedObjects
+                .filter((v) => typeof v === "string")
+                .slice(-200)
+            : [],
+          lastSessionSteps: Number(parsed.lastSessionSteps) || 0,
+          lastSessionRetrievedObjects: Array.isArray(
+            parsed.lastSessionRetrievedObjects,
+          )
+            ? parsed.lastSessionRetrievedObjects
+                .filter((v) => typeof v === "string")
+                .slice(-50)
+            : [],
+          lastSessionRoute:
+            parsed.lastSessionRoute && typeof parsed.lastSessionRoute === "object"
+              ? parsed.lastSessionRoute
+              : null,
+        });
       }
     } catch (err) {
-      console.warn("Failed to load learned words:", err);
+      console.warn("Failed to load fitness progress:", err);
     }
   }, []);
 
   useEffect(() => {
     try {
       window.localStorage.setItem(
-        LEARNED_WORDS_STORAGE_KEY,
-        JSON.stringify(learnedWords),
+        FITNESS_PROGRESS_STORAGE_KEY,
+        JSON.stringify(fitnessProgress),
       );
     } catch (err) {
-      console.warn("Failed to persist learned words:", err);
+      console.warn("Failed to persist fitness progress:", err);
     }
-  }, [learnedWords]);
+  }, [fitnessProgress]);
 
-  const addLearnedWord = useCallback((word) => {
-    if (!word || typeof word !== "string") return;
-    const trimmed = word.trim();
-    if (!trimmed) return;
+  // Legacy no-op for older language-learning branches that are no longer active.
+  const addLearnedWord = useCallback(() => {}, []);
 
-    setLearnedWords((prev) => {
-      const exists = prev.some(
-        (w) => w.toLowerCase() === trimmed.toLowerCase(),
+  const getCurrentPositionOnce = useCallback(async () => {
+    if (!navigator.geolocation) {
+      throw new Error("Geolocation not supported");
+    }
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          resolve({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy: pos.coords.accuracy,
+            timestamp: Date.now(),
+          });
+        },
+        (err) => reject(err),
+        {
+          enableHighAccuracy: true,
+          timeout: 12000,
+          maximumAge: 3000,
+        },
       );
-      if (exists) return prev;
-      return [...prev, trimmed];
     });
   }, []);
 
+  useEffect(() => {
+    if (!unlocked) return;
+    if (typeof window === "undefined") return;
+
+    const activePhases = new Set([
+      "connecting",
+      "speaking_intro",
+      "speaking_task",
+      "searching",
+      "speaking_found",
+      "speaking_yap",
+      "speaking_interrupt",
+    ]);
+
+    const onMotion = (event) => {
+      if (!activePhases.has(phase)) return;
+      const accel = event?.accelerationIncludingGravity;
+      if (!accel) return;
+
+      const x = Number(accel.x) || 0;
+      const y = Number(accel.y) || 0;
+      const z = Number(accel.z) || 0;
+      const magnitude = Math.sqrt(x * x + y * y + z * z);
+      const delta = Math.abs(magnitude - 9.81);
+      const isHigh = delta > 1.15;
+      const now = Date.now();
+
+      if (
+        isHigh &&
+        !motionStepHighRef.current &&
+        now - lastStepAtRef.current > 320
+      ) {
+        lastStepAtRef.current = now;
+        setSessionSteps((prev) => prev + 1);
+      }
+      motionStepHighRef.current = isHigh;
+    };
+
+    window.addEventListener("devicemotion", onMotion);
+    return () => {
+      window.removeEventListener("devicemotion", onMotion);
+    };
+  }, [unlocked, phase]);
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setGpsDebugError("Geolocation not supported on this device/browser");
+      return;
+    }
+
+    if (geoWatchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(geoWatchIdRef.current);
+      geoWatchIdRef.current = null;
+    }
+
+    geoWatchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const nextGps = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+          timestamp: Date.now(),
+        };
+        setGpsDebugError("");
+        currentGpsRef.current = nextGps;
+        setCurrentGps(nextGps);
+      },
+      (err) => {
+        console.warn("GPS watch error:", err);
+        setGpsDebugError(err?.message || "Unable to read GPS");
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 2000,
+        timeout: 12000,
+      },
+    );
+
+    return () => {
+      if (geoWatchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(geoWatchIdRef.current);
+        geoWatchIdRef.current = null;
+      }
+      currentGpsRef.current = null;
+    };
+  }, []);
+
   const endCall = useCallback(() => {
+    const completedSessionRetrieved = Array.isArray(sessionRetrievedObjects)
+      ? sessionRetrievedObjects.filter((v) => typeof v === "string")
+      : [];
+    const completedSessionSteps = Number(sessionSteps) || 0;
+
+    if (completedSessionSteps > 0 || completedSessionRetrieved.length > 0) {
+      const routeSummary =
+        callData?.originPlaceName && callData?.destinationName
+          ? {
+              from: callData.originPlaceName,
+              to: callData.destinationName,
+              steps: completedSessionSteps,
+              at: new Date().toISOString(),
+            }
+          : null;
+      setFitnessProgress((prev) => ({
+        totalSteps: (Number(prev.totalSteps) || 0) + completedSessionSteps,
+        totalRetrievedObjects: [
+          ...(Array.isArray(prev.totalRetrievedObjects)
+            ? prev.totalRetrievedObjects
+            : []),
+          ...completedSessionRetrieved,
+        ].slice(-400),
+        lastSessionSteps: completedSessionSteps,
+        lastSessionRetrievedObjects: completedSessionRetrieved.slice(-30),
+        lastSessionRoute: routeSummary || prev.lastSessionRoute || null,
+      }));
+    }
+
     stopAudio();
     setPhase("idle");
     setUnlocked(false);
     setCallData(null);
     setIncomingCallData(null);
     setCvDebug(null);
+    setCurrentGps(null);
+    setRouteDistanceMeters(null);
+    setGpsDebugError("");
+    currentGpsRef.current = null;
     setTranscript("");
     setCallDuration(0);
+    setSessionSteps(0);
+    setSessionRetrievedObjects([]);
+    arrivedRef.current = false;
+    routeNoProgressRoundsRef.current = 0;
+    lastRouteDistanceRef.current = null;
     isSearchingRef.current = false;
     noObjectRoundsRef.current = 0;
     clearTimeout(searchIntervalRef.current);
-  }, [stopAudio]);
+  }, [stopAudio, sessionRetrievedObjects, sessionSteps, callData]);
 
   useEffect(() => {
     if (!unlocked || phase !== "ringing") return;
@@ -278,7 +529,7 @@ export default function App() {
 
     (async () => {
       try {
-        const startData = await phoneStart(TARGET_LANGUAGE, NATIVE_LANGUAGE);
+        const startData = await phoneStart(NATIVE_LANGUAGE, NATIVE_LANGUAGE);
         if (!cancelled) setIncomingCallData(startData);
       } catch (err) {
         console.error(err);
@@ -298,6 +549,11 @@ export default function App() {
     const isActiveCall = [
       "connecting",
       "speaking_intro",
+      "listening_location",
+      "processing_location",
+      "speaking_location_confirm",
+      "listening_time_budget",
+      "processing_time_budget",
       "listening_preference",
       "processing_preference",
       "speaking_task",
@@ -358,21 +614,42 @@ export default function App() {
     vibrate([100, 50, 100]);
     setPhase("connecting");
     setCallDuration(0);
+    setSessionSteps(0);
+    setSessionRetrievedObjects([]);
+    motionStepHighRef.current = false;
+    lastStepAtRef.current = 0;
+    routeNoProgressRoundsRef.current = 0;
+    lastRouteDistanceRef.current = null;
+    arrivedRef.current = false;
     try {
       const startData =
-        incomingCallData || (await phoneStart(TARGET_LANGUAGE, NATIVE_LANGUAGE));
+        incomingCallData || (await phoneStart(NATIVE_LANGUAGE, NATIVE_LANGUAGE));
       setIncomingCallData(startData);
       setCallData({
         friendName: startData.friendName,
-        targetObject: startData.targetObject,
-        targetObjectTranslated: startData.targetObjectTranslated,
-        struggled: false,
+        targetObject: "",
+        targetObjectTranslated: "",
+        chosenLanguage: NATIVE_LANGUAGE,
+        gameMode: "walk_meetup",
+        retrievedObjects: [],
+        originPlaceName: "",
+        destinationName: "",
+        destinationLatitude: null,
+        destinationLongitude: null,
+        arrivalRadiusMeters: 55,
+        timeBudgetReply: "",
+        storySeed: "",
+        startedAtIso: new Date().toISOString(),
       });
 
-      const { audioBase64, mimeType } = await speak(startData.script);
+      const { audioBase64, mimeType } = await speak(
+        startData.script,
+        null,
+        NATIVE_LANGUAGE,
+      );
       setPhase("speaking_intro");
       await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
-        onEnded: () => setPhase("listening_preference"),
+        onEnded: () => setPhase("listening_location"),
       });
     } catch (err) {
       console.error(err);
@@ -420,6 +697,185 @@ export default function App() {
     },
     [callData, playAudioSource],
   );
+
+  const processLocationReply = useCallback(
+    async (spokenText) => {
+      if (!callData) return;
+      setPhase("processing_location");
+      setTranscript(spokenText || "");
+
+      try {
+        const gps = currentGps || (await getCurrentPositionOnce());
+        const locationData = await phoneConfirmLocation({
+          friendName: callData.friendName,
+          transcript: spokenText,
+          latitude: gps.latitude,
+          longitude: gps.longitude,
+          nativeLanguage: NATIVE_LANGUAGE,
+        });
+
+        setCallData((prev) => ({
+          ...prev,
+          originPlaceName: locationData.confirmedPlaceName || prev.originPlaceName,
+          originLatitude: gps.latitude,
+          originLongitude: gps.longitude,
+          locationClaim: spokenText,
+        }));
+
+        const locationConfirmScript = `${
+          locationData.script ||
+          `Nice, I got your location around ${locationData.confirmedPlaceName || "there"}.`
+        } Do you have a short time, or around ten minutes?`;
+
+        const { audioBase64, mimeType } = await speak(
+          locationConfirmScript,
+          null,
+          NATIVE_LANGUAGE,
+        );
+        setPhase("speaking_location_confirm");
+        await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
+          onEnded: () => setPhase("listening_time_budget"),
+        });
+      } catch (err) {
+        console.error("processLocationReply error:", err);
+        try {
+          const fallback =
+            "I couldn't confirm your exact spot yet. Can you share it again and keep location enabled?";
+          const { audioBase64, mimeType } = await speak(
+            fallback,
+            null,
+            NATIVE_LANGUAGE,
+          );
+          setPhase("speaking_location_confirm");
+          await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
+            onEnded: () => setPhase("listening_location"),
+          });
+        } catch (sErr) {
+          console.error("processLocationReply fallback error:", sErr);
+          setPhase("error");
+        }
+      }
+    },
+    [callData, currentGps, getCurrentPositionOnce, playAudioSource],
+  );
+
+  const processTimeBudgetReply = useCallback(
+    async (spokenText) => {
+      if (!callData) return;
+      setPhase("processing_time_budget");
+      setTranscript(spokenText || "");
+
+      try {
+        const gps = currentGps || (await getCurrentPositionOnce());
+        const plan = await phonePlanDestination({
+          friendName: callData.friendName,
+          originPlaceName: callData.originPlaceName || "",
+          latitude: gps.latitude,
+          longitude: gps.longitude,
+          timeBudgetReply: spokenText,
+          nativeLanguage: NATIVE_LANGUAGE,
+        });
+
+        setCallData((prev) => ({
+          ...prev,
+          originPlaceName: plan.originPlaceName || prev.originPlaceName,
+          originLatitude: gps.latitude,
+          originLongitude: gps.longitude,
+          destinationName: plan.destinationName,
+          destinationLatitude: Number(plan.destinationLatitude),
+          destinationLongitude: Number(plan.destinationLongitude),
+          arrivalRadiusMeters: Number(plan.arrivalRadiusMeters) || 55,
+          timeBudgetReply: spokenText,
+          targetObject: plan.destinationName,
+          storySeed: plan.storySeed || "",
+        }));
+
+        const { audioBase64, mimeType } = await speak(
+          plan.script ||
+            `Can you meet me at ${plan.destinationName}? It's about ${plan.walkMinutes || 2} minutes away.`,
+          null,
+          NATIVE_LANGUAGE,
+        );
+        setPhase("speaking_task");
+        await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
+          onEnded: () => setPhase("searching"),
+        });
+      } catch (err) {
+        console.error("processTimeBudgetReply error:", err);
+        setPhase("error");
+      }
+    },
+    [callData, currentGps, getCurrentPositionOnce, playAudioSource],
+  );
+
+  const handleRouteYap = useCallback(
+    async (distanceRemainingMeters) => {
+      if (!callData) return false;
+
+      setPhase("speaking_yap");
+      try {
+        const yData = await phoneRouteYap({
+          friendName: callData.friendName,
+          originPlaceName: callData.originPlaceName,
+          destinationName: callData.destinationName,
+          distanceRemainingMeters,
+          stepCount: sessionSteps,
+          sessionSeconds: callDuration,
+          storySeed: callData.storySeed || "",
+          noProgressRounds: routeNoProgressRoundsRef.current,
+          nativeLanguage: NATIVE_LANGUAGE,
+        });
+
+        const { audioBase64, mimeType } = await speak(
+          yData.script,
+          null,
+          NATIVE_LANGUAGE,
+        );
+        await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
+          onEnded: () => setPhase("searching"),
+        });
+        return true;
+      } catch (err) {
+        console.error("Route yap error:", err);
+        setPhase("searching");
+        return false;
+      }
+    },
+    [callData, sessionSteps, callDuration, playAudioSource],
+  );
+
+  const handleArrived = useCallback(async () => {
+    if (!callData || arrivedRef.current) return;
+    arrivedRef.current = true;
+    isSearchingRef.current = false;
+    setPhase("speaking_found");
+    setSessionRetrievedObjects((prev) => [
+      ...prev,
+      callData.destinationName || "destination",
+    ]);
+
+    try {
+      const aData = await phoneArrived({
+        friendName: callData.friendName,
+        originPlaceName: callData.originPlaceName,
+        destinationName: callData.destinationName,
+        stepCount: sessionSteps,
+        sessionSeconds: callDuration,
+        nativeLanguage: NATIVE_LANGUAGE,
+      });
+      const { audioBase64, mimeType } = await speak(
+        aData.script,
+        null,
+        NATIVE_LANGUAGE,
+      );
+      await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
+        onEnded: () => endCall(),
+      });
+    } catch (err) {
+      console.error("handleArrived error:", err);
+      endCall();
+    }
+  }, [callData, sessionSteps, callDuration, playAudioSource, endCall]);
 
   const handleEnglishPracticePrompt = useCallback(
     async (objectName) => {
@@ -528,23 +984,18 @@ export default function App() {
         const yData = await phoneYap({
           friendName: callData.friendName,
           targetObject: callData.targetObject,
-          targetObjectTranslated: callData.targetObjectTranslated,
-          gameMode: callData.gameMode || FIND_REQUESTED_MODE,
-          chosenLanguage: callData.chosenLanguage,
           visibleObjects,
           focusObject,
           noObjectRounds: noObjectRoundsRef.current,
-          targetLanguage: TARGET_LANGUAGE,
-          nativeLanguage: NATIVE_LANGUAGE,
+          stepCount: sessionSteps,
+          retrievedObjects: callData.retrievedObjects || sessionRetrievedObjects,
+          sessionSeconds: callDuration,
         });
-        if (yData?.teachingTranslation) {
-          addLearnedWord(yData.teachingTranslation);
-        }
 
         const { audioBase64, mimeType } = await speak(
           yData.script,
           null,
-          callData.chosenLanguage || NATIVE_LANGUAGE,
+          NATIVE_LANGUAGE,
         );
         await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
           onEnded: () => setPhase("searching"),
@@ -556,7 +1007,7 @@ export default function App() {
         return false;
       }
     },
-    [callData, playAudioSource, addLearnedWord],
+    [callData, playAudioSource, sessionSteps, sessionRetrievedObjects, callDuration],
   );
 
   const handleInterruption = useCallback(
@@ -576,42 +1027,19 @@ export default function App() {
       setPhase("speaking_interrupt");
 
       try {
-        const chosenIsTarget =
-          normText(callData.chosenLanguage) === normText(TARGET_LANGUAGE);
-        const inFindMode =
-          (callData.gameMode || FIND_REQUESTED_MODE) === FIND_REQUESTED_MODE;
-        if (inFindMode && chosenIsTarget && isLikelyConfusionText(spokenText)) {
-          const fallbackScript = `No worries. In ${TARGET_LANGUAGE}, ${callData.targetObject} is "${callData.targetObjectTranslated}". Thanks for helping me today, bye!`;
-          addLearnedWord(callData.targetObjectTranslated || callData.targetObject);
-          const { audioBase64, mimeType } = await speak(
-            fallbackScript,
-            null,
-            NATIVE_LANGUAGE,
-          );
-          await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
-            onEnded: () => endCall(),
-          });
-          return true;
-        }
-
         const iData = await phoneInterrupt({
           transcript: spokenText,
           friendName: callData.friendName,
           targetObject: callData.targetObject,
-          targetObjectTranslated: callData.targetObjectTranslated,
-          gameMode: callData.gameMode || FIND_REQUESTED_MODE,
-          chosenLanguage: callData.chosenLanguage,
           visibleObjects: (cvDebug?.visibleObjectDetections || [])
             .map((d) => d?.name)
             .filter(Boolean),
-          targetLanguage: TARGET_LANGUAGE,
-          nativeLanguage: NATIVE_LANGUAGE,
         });
 
         const { audioBase64, mimeType } = await speak(
           iData.script,
           null,
-          callData.chosenLanguage || NATIVE_LANGUAGE,
+          NATIVE_LANGUAGE,
         );
         await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
           onEnded: () => setPhase("searching"),
@@ -625,7 +1053,7 @@ export default function App() {
         interruptBusyRef.current = false;
       }
     },
-    [callData, cvDebug, playAudioSource, addLearnedWord, endCall],
+    [callData, cvDebug, playAudioSource],
   );
 
   useEffect(() => {
@@ -717,6 +1145,174 @@ export default function App() {
   }, [phase, processPreference]);
 
   useEffect(() => {
+    if (phase !== "listening_location") return;
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn("Speech recognition not supported in this browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    let submitted = false;
+    let finalText = "";
+    let latestLiveText = "";
+    let idleFinalizeTimer = null;
+    const isActiveRef = { current: true };
+
+    const submitLocation = (text) => {
+      const trimmed = (text || "").trim();
+      if (!trimmed || submitted) return;
+      submitted = true;
+      if (idleFinalizeTimer) clearTimeout(idleFinalizeTimer);
+      processLocationReply(trimmed);
+    };
+
+    const scheduleIdleFinalize = () => {
+      if (idleFinalizeTimer) clearTimeout(idleFinalizeTimer);
+      idleFinalizeTimer = setTimeout(() => {
+        submitLocation(finalText || latestLiveText);
+      }, 900);
+    };
+
+    recognition.onstart = () => {
+      setTranscript("");
+      setIsListening(true);
+    };
+    recognition.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const segment = event.results[i][0].transcript.trim();
+        if (!segment) continue;
+        if (event.results[i].isFinal) {
+          finalText = `${finalText} ${segment}`.trim();
+        }
+      }
+
+      const interimText = Array.from(event.results)
+        .map((result) => (result.isFinal ? "" : result[0].transcript.trim()))
+        .filter(Boolean)
+        .join(" ");
+
+      latestLiveText = `${finalText} ${interimText}`.trim();
+      if (latestLiveText) setTranscript(latestLiveText);
+
+      if (finalText) {
+        submitLocation(finalText);
+      } else if (latestLiveText) {
+        scheduleIdleFinalize();
+      }
+    };
+    recognition.onerror = (e) => {
+      console.error("Location speech recognition error:", e);
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+      if (!submitted && isActiveRef.current && phase === "listening_location") {
+        try {
+          recognition.start();
+        } catch (e) {}
+      }
+    };
+
+    recognition.start();
+
+    return () => {
+      isActiveRef.current = false;
+      if (idleFinalizeTimer) clearTimeout(idleFinalizeTimer);
+      recognition.stop();
+    };
+  }, [phase, processLocationReply]);
+
+  useEffect(() => {
+    if (phase !== "listening_time_budget") return;
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn("Speech recognition not supported in this browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    let submitted = false;
+    let finalText = "";
+    let latestLiveText = "";
+    let idleFinalizeTimer = null;
+    const isActiveRef = { current: true };
+
+    const submitTime = (text) => {
+      const trimmed = (text || "").trim();
+      if (!trimmed || submitted) return;
+      submitted = true;
+      if (idleFinalizeTimer) clearTimeout(idleFinalizeTimer);
+      processTimeBudgetReply(trimmed);
+    };
+
+    const scheduleIdleFinalize = () => {
+      if (idleFinalizeTimer) clearTimeout(idleFinalizeTimer);
+      idleFinalizeTimer = setTimeout(() => {
+        submitTime(finalText || latestLiveText);
+      }, 900);
+    };
+
+    recognition.onstart = () => {
+      setTranscript("");
+      setIsListening(true);
+    };
+    recognition.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const segment = event.results[i][0].transcript.trim();
+        if (!segment) continue;
+        if (event.results[i].isFinal) {
+          finalText = `${finalText} ${segment}`.trim();
+        }
+      }
+
+      const interimText = Array.from(event.results)
+        .map((result) => (result.isFinal ? "" : result[0].transcript.trim()))
+        .filter(Boolean)
+        .join(" ");
+
+      latestLiveText = `${finalText} ${interimText}`.trim();
+      if (latestLiveText) setTranscript(latestLiveText);
+
+      if (finalText) {
+        submitTime(finalText);
+      } else if (latestLiveText) {
+        scheduleIdleFinalize();
+      }
+    };
+    recognition.onerror = (e) => {
+      console.error("Time-budget speech recognition error:", e);
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+      if (!submitted && isActiveRef.current && phase === "listening_time_budget") {
+        try {
+          recognition.start();
+        } catch (e) {}
+      }
+    };
+
+    recognition.start();
+
+    return () => {
+      isActiveRef.current = false;
+      if (idleFinalizeTimer) clearTimeout(idleFinalizeTimer);
+      recognition.stop();
+    };
+  }, [phase, processTimeBudgetReply]);
+
+  useEffect(() => {
     if (phase !== "listening_object_guess") return;
 
     const SpeechRecognition =
@@ -793,167 +1389,128 @@ export default function App() {
     };
   }, [phase, handleEnglishPracticeGuess]);
 
-  const handleStruggle = useCallback(async () => {
-    isSearchingRef.current = false;
-    setPhase("speaking_struggle");
+  const handleFound = useCallback(async () => {
+    if (!callData?.targetObject) return;
+    const foundObject = callData.targetObject;
+    const updatedRetrieved = [
+      ...(Array.isArray(callData.retrievedObjects)
+        ? callData.retrievedObjects
+        : []),
+      foundObject,
+    ];
+    const nextTarget = pickNextTreasureTarget(foundObject, updatedRetrieved);
 
+    setSessionRetrievedObjects((prev) => [...prev, foundObject]);
+    setCallData((prev) => ({
+      ...prev,
+      retrievedObjects: updatedRetrieved,
+      targetObject: nextTarget,
+      targetObjectTranslated: nextTarget,
+    }));
+
+    setPhase("speaking_found");
     try {
-      const stData = await phoneStruggle(
+      const fData = await phoneFound(
         callData.friendName,
-        callData.targetObject,
-        TARGET_LANGUAGE,
-        NATIVE_LANGUAGE,
+        foundObject,
+        nextTarget,
+        updatedRetrieved,
+        sessionSteps,
+        callDuration,
       );
 
-      setCallData((prev) => ({ ...prev, struggled: true }));
-
-      const { audioBase64, mimeType } = await speak(stData.script);
+      const { audioBase64, mimeType } = await speak(
+        fData.script,
+        null,
+        NATIVE_LANGUAGE,
+      );
       await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
         onEnded: () => setPhase("searching"),
       });
     } catch (err) {
       console.error(err);
-      setPhase("searching");
+      try {
+        const fallback = `Great work, you found ${foundObject}. Keep moving, next target is ${nextTarget}.`;
+        const { audioBase64, mimeType } = await speak(
+          fallback,
+          null,
+          NATIVE_LANGUAGE,
+        );
+        await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
+          onEnded: () => setPhase("searching"),
+        });
+      } catch (sErr) {
+        console.error("Found fallback error:", sErr);
+        setPhase("searching");
+      }
     }
-  }, [callData, playAudioSource]);
-
-  const handleFound = useCallback(async () => {
-    setPhase("speaking_found");
-    try {
-      const fData = await phoneFound(
-        callData.friendName,
-        callData.targetObject,
-        callData.targetObjectTranslated,
-        callData.chosenLanguage,
-        struggledRef.current || callData.struggled,
-        TARGET_LANGUAGE,
-        NATIVE_LANGUAGE,
-      );
-      addLearnedWord(callData.targetObjectTranslated || callData.targetObject);
-
-      const { audioBase64, mimeType } = await speak(fData.script);
-      await playAudioSource(`data:${mimeType};base64,${audioBase64}`, {
-        onEnded: () => setPhase("done"),
-      });
-    } catch (err) {
-      console.error(err);
-      setPhase("done");
-    }
-  }, [callData, playAudioSource, addLearnedWord]);
+  }, [callData, playAudioSource, sessionSteps, callDuration]);
 
   useEffect(() => {
     if (phase !== "searching" || !callData) return;
 
+    if (callData.gameMode !== "walk_meetup") return;
     isSearchingRef.current = true;
     searchStartTimeRef.current = Date.now();
-    struggledRef.current = false;
-    noObjectRoundsRef.current = 0;
+    routeNoProgressRoundsRef.current = 0;
+    setRouteDistanceMeters(null);
     setCvDebug(null);
 
     const checkLoop = async () => {
-      if (!isSearchingRef.current || !videoRef.current) return;
+      if (!isSearchingRef.current) return;
+      try {
+        const liveGps = currentGpsRef.current || (await getCurrentPositionOnce());
+        const targetLat = Number(callData.destinationLatitude);
+        const targetLon = Number(callData.destinationLongitude);
 
-      const frame = captureFrame(videoRef.current);
-      if (frame) {
-        try {
-          const cvRes = await phoneCheckCv(frame, callData.targetObject);
-          const visibleObjectDetections = Array.isArray(
-            cvRes?.visibleObjectDetections,
-          )
-            ? cvRes.visibleObjectDetections
-            : [];
-          const visibleObjectNames = visibleObjectDetections
-            .map((d) => d?.name)
-            .filter(Boolean);
-          const focusObjectName = pickPracticeObjectName(
-            visibleObjectDetections,
-          );
-          const gameMode = callData.gameMode || FIND_REQUESTED_MODE;
-          const isEnglishPractice = gameMode === ENGLISH_PRACTICE_MODE;
-
-          if (visibleObjectNames.length === 0) {
-            noObjectRoundsRef.current += 1;
-          } else {
-            noObjectRoundsRef.current = 0;
-          }
-
-          setCvDebug({
-            modelUsed: cvRes?.modelUsed || "unknown",
-            found: Boolean(cvRes?.found),
-            confidence: cvRes?.confidence,
-            detectedObject: cvRes?.detectedObject,
-            targetBoundingBox:
-              gameMode === FIND_REQUESTED_MODE
-                ? cvRes?.targetBoundingBox || null
-                : null,
-            fallbackSceneUsed: Boolean(cvRes?.fallbackSceneUsed),
-            visibleObjectDetections,
-          });
-          console.log("[CV Check]", {
-            gameMode,
-            targetObject: callData.targetObject,
-            modelUsed: cvRes?.modelUsed,
-            found: cvRes?.found,
-            modelFound: cvRes?.modelFound,
-            confidence: cvRes?.confidence,
-            matchType: cvRes?.matchType,
-            detectedObject: cvRes?.detectedObject,
-            targetBoundingBox: cvRes?.targetBoundingBox,
-            evidence: cvRes?.evidence,
-            visibleObjects: cvRes?.visibleObjects,
-            visibleObjectDetections,
-            fallbackSceneUsed: cvRes?.fallbackSceneUsed,
-          });
-          if (!isEnglishPractice) {
-            if (cvRes.found) {
-              isSearchingRef.current = false;
-              handleFound();
-              return;
-            }
-          } else if (
-            !callData?.practiceObject &&
-            focusObjectName &&
-            !interruptBusyRef.current
-          ) {
-            isSearchingRef.current = false;
-            clearTimeout(searchIntervalRef.current);
-            await handleEnglishPracticePrompt(focusObjectName);
-            return;
-          }
-
-          const isWrongVisible =
-            !!focusObjectName &&
-            normText(focusObjectName) !== normText(callData.targetObject);
-          const yapCooldownMs = isWrongVisible ? 5000 : 9000;
-          const shouldYap =
-            !callData?.awaitingPracticeGuess &&
-            Date.now() - lastYapAtRef.current > yapCooldownMs &&
-            !interruptBusyRef.current;
-          if (shouldYap) {
-            isSearchingRef.current = false;
-            clearTimeout(searchIntervalRef.current);
-            lastYapAtRef.current = Date.now();
-            await handleSearchYap(visibleObjectNames, focusObjectName);
-            return;
-          }
-        } catch (e) {
-          console.error("CV error", e);
+        if (
+          !Number.isFinite(targetLat) ||
+          !Number.isFinite(targetLon) ||
+          !Number.isFinite(Number(liveGps?.latitude)) ||
+          !Number.isFinite(Number(liveGps?.longitude))
+        ) {
+          searchIntervalRef.current = setTimeout(checkLoop, 2200);
+          return;
         }
+
+        const distance = haversineMeters(
+          Number(liveGps.latitude),
+          Number(liveGps.longitude),
+          targetLat,
+          targetLon,
+        );
+        const roundedDistance = Math.max(0, Math.round(distance));
+        setRouteDistanceMeters(roundedDistance);
+
+        if (lastRouteDistanceRef.current !== null) {
+          const delta = lastRouteDistanceRef.current - roundedDistance;
+          if (delta < 8) routeNoProgressRoundsRef.current += 1;
+          else routeNoProgressRoundsRef.current = 0;
+        }
+        lastRouteDistanceRef.current = roundedDistance;
+
+        const arrivalRadius = Number(callData.arrivalRadiusMeters) || 55;
+        if (roundedDistance <= arrivalRadius && !arrivedRef.current) {
+          isSearchingRef.current = false;
+          await handleArrived();
+          return;
+        }
+
+        const shouldYap =
+          Date.now() - lastYapAtRef.current > 9000 && !interruptBusyRef.current;
+        if (shouldYap) {
+          isSearchingRef.current = false;
+          clearTimeout(searchIntervalRef.current);
+          lastYapAtRef.current = Date.now();
+          await handleRouteYap(roundedDistance);
+          return;
+        }
+      } catch (e) {
+        console.error("Route loop error", e);
       }
 
-      const elapsed = Date.now() - searchStartTimeRef.current;
-      if (
-        (callData.gameMode || FIND_REQUESTED_MODE) === FIND_REQUESTED_MODE &&
-        elapsed > 15000 &&
-        !struggledRef.current &&
-        normText(callData.chosenLanguage) === normText(TARGET_LANGUAGE)
-      ) {
-        struggledRef.current = true;
-        handleStruggle();
-      } else {
-        if (isSearchingRef.current) {
-          searchIntervalRef.current = setTimeout(checkLoop, 2000);
-        }
+      if (isSearchingRef.current) {
+        searchIntervalRef.current = setTimeout(checkLoop, 2200);
       }
     };
 
@@ -966,10 +1523,9 @@ export default function App() {
   }, [
     phase,
     callData,
-    handleFound,
-    handleStruggle,
-    handleSearchYap,
-    handleEnglishPracticePrompt,
+    getCurrentPositionOnce,
+    handleArrived,
+    handleRouteYap,
   ]);
 
   useEffect(() => {
@@ -980,10 +1536,7 @@ export default function App() {
     if (!SpeechRecognition) return;
 
     const recognition = new SpeechRecognition();
-    recognition.lang =
-      normText(callData?.chosenLanguage) === normText(TARGET_LANGUAGE)
-        ? "pt-BR"
-        : "en-US";
+    recognition.lang = "en-US";
     recognition.continuous = true;
     recognition.interimResults = false;
 
@@ -1032,6 +1585,11 @@ export default function App() {
   const isActiveCallPhase = [
     "connecting",
     "speaking_intro",
+    "listening_location",
+    "processing_location",
+    "speaking_location_confirm",
+    "listening_time_budget",
+    "processing_time_budget",
     "listening_preference",
     "processing_preference",
     "speaking_task",
@@ -1044,6 +1602,13 @@ export default function App() {
     "speaking_interrupt",
     "error",
   ].includes(phase);
+
+  const gpsDebugLine1 = currentGps
+    ? `${Number(currentGps.latitude).toFixed(6)}, ${Number(currentGps.longitude).toFixed(6)}`
+    : "Waiting for GPS fix...";
+  const gpsDebugLine2 = currentGps
+    ? `±${Math.round(Number(currentGps.accuracy) || 0)}m • ${new Date(currentGps.timestamp || Date.now()).toLocaleTimeString()}`
+    : "Location permission/fix pending";
 
   return (
     <div className="app">
@@ -1108,8 +1673,38 @@ export default function App() {
             9:41
           </div>
           <div style={{ fontSize: 18, opacity: 0.7, marginBottom: 40 }}>{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-          <div style={{ fontSize: 14, opacity: 0.72, marginBottom: 12 }}>
-            {`Learnt ${learnedWords.length ? learnedWords.slice(-3).join(", ") : "0"} words`}
+          <div style={{ fontSize: 14, opacity: 0.8, marginBottom: 6, textAlign: "center" }}>
+            {`Last Session: ${fitnessProgress.lastSessionSteps || 0} footsteps`}
+          </div>
+          {fitnessProgress.lastSessionRoute && (
+            <div style={{ fontSize: 12.5, opacity: 0.78, marginBottom: 6, textAlign: "center", maxWidth: "90%" }}>
+              {`${fitnessProgress.lastSessionRoute.from} → ${fitnessProgress.lastSessionRoute.to} • ${formatRouteTimestamp(fitnessProgress.lastSessionRoute.at)}`}
+            </div>
+          )}
+          <div style={{ fontSize: 13, opacity: 0.7, marginBottom: 12, textAlign: "center", maxWidth: "84%" }}>
+            {fitnessProgress.lastSessionRetrievedObjects?.length
+              ? `Retrieved: ${fitnessProgress.lastSessionRetrievedObjects.join(", ")}`
+              : "Retrieved: none yet"}
+          </div>
+          <div
+            style={{
+              width: "min(92vw, 420px)",
+              background: "rgba(0,0,0,0.45)",
+              border: "1px solid rgba(255,255,255,0.22)",
+              borderRadius: "10px",
+              padding: "8px 10px",
+              fontSize: "0.72rem",
+              lineHeight: 1.35,
+              textAlign: "left",
+              marginBottom: 14,
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 2 }}>GPS DEBUG</div>
+            <div>{gpsDebugLine1}</div>
+            <div style={{ opacity: 0.86 }}>{gpsDebugLine2}</div>
+            {gpsDebugError ? (
+              <div style={{ color: "#fecaca", marginTop: 2 }}>{gpsDebugError}</div>
+            ) : null}
           </div>
           <div style={{ flex: 1 }} />
           <div style={{ marginBottom: 40, opacity: 0.8, fontSize: 20, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -1134,6 +1729,31 @@ export default function App() {
         </div>
       ) : (
         <>
+          <div
+            style={{
+              position: "fixed",
+              left: "12px",
+              top: "calc(var(--safe-top) + 8px)",
+              zIndex: 20,
+              background: "rgba(0, 0, 0, 0.62)",
+              border: "1px solid rgba(255,255,255,0.22)",
+              borderRadius: "10px",
+              padding: "7px 10px",
+              color: "white",
+              fontSize: "0.72rem",
+              lineHeight: 1.3,
+              textShadow: "none",
+              maxWidth: "86vw",
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 2 }}>GPS DEBUG</div>
+            <div>{gpsDebugLine1}</div>
+            <div style={{ opacity: 0.86 }}>{gpsDebugLine2}</div>
+            {gpsDebugError ? (
+              <div style={{ color: "#fecaca", marginTop: 2 }}>{gpsDebugError}</div>
+            ) : null}
+          </div>
+
           <CameraView
             ref={videoRef}
             onReady={() => {}}
@@ -1187,14 +1807,30 @@ export default function App() {
 
               {/* Mid status hints */}
               <div className="facetime-status">
+                {phase === "listening_location" && (
+                  <span className="facetime-status-pill pulse">
+                    🎙️ Tell me where you are now
+                  </span>
+                )}
+                {phase === "processing_location" && (
+                  <span className="facetime-status-pill">Checking your GPS...</span>
+                )}
+                {phase === "listening_time_budget" && (
+                  <span className="facetime-status-pill pulse">
+                    🎙️ Short time or around 10 minutes?
+                  </span>
+                )}
+                {phase === "processing_time_budget" && (
+                  <span className="facetime-status-pill">Planning meetup spot...</span>
+                )}
                 {phase === "listening_preference" && (
                   <span className="facetime-status-pill pulse">
-                    🎙️ Say: English or Portuguese
+                    🎙️ Treasure hunt briefing...
                   </span>
                 )}
                 {phase === "listening_object_guess" && (
                   <span className="facetime-status-pill pulse">
-                    🎙️ Say the Portuguese word
+                    🎙️ Name the object
                   </span>
                 )}
                 {phase === "processing_preference" && (
@@ -1213,6 +1849,10 @@ export default function App() {
                 )}
                 {transcript &&
                   [
+                    "listening_location",
+                    "processing_location",
+                    "listening_time_budget",
+                    "processing_time_budget",
                     "listening_preference",
                     "processing_preference",
                     "listening_object_guess",
@@ -1228,13 +1868,23 @@ export default function App() {
                       className="facetime-skip-btn"
                       onClick={() => processPreference("English")}
                     >
-                      English
+                      Start Hunt
+                    </button>
+                  </div>
+                )}
+                {phase === "listening_time_budget" && (
+                  <div className="facetime-skip-row">
+                    <button
+                      className="facetime-skip-btn"
+                      onClick={() => processTimeBudgetReply("I only have a short time")}
+                    >
+                      Short Time
                     </button>
                     <button
                       className="facetime-skip-btn"
-                      onClick={() => processPreference("Portuguese")}
+                      onClick={() => processTimeBudgetReply("I have around 10 minutes")}
                     >
-                      Portuguese
+                      10 Minutes
                     </button>
                   </div>
                 )}
@@ -1297,15 +1947,19 @@ export default function App() {
                 style={{ textShadow: "0 2px 6px rgba(0,0,0,0.8)" }}
               >
                 <h2 className="ios-active-name" style={{ fontWeight: 600 }}>
-                  {(callData?.gameMode || FIND_REQUESTED_MODE) === ENGLISH_PRACTICE_MODE
-                    ? `Practice: name nearby objects in ${TARGET_LANGUAGE}`
-                    : `Find: ${callData?.targetObject}`}
+                  {`Meetup Target: ${callData?.destinationName || callData?.targetObject || "..."}`}
                 </h2>
                 <p
                   className="ios-active-time"
                   style={{ color: "white", fontWeight: 500 }}
                 >
                   {formatTime(callDuration)}
+                </p>
+                <p
+                  className="ios-active-time"
+                  style={{ color: "white", fontWeight: 500, marginTop: "4px" }}
+                >
+                  {`Steps ${sessionSteps} • ${routeDistanceMeters !== null ? `${routeDistanceMeters}m left` : "locating route..."}`}
                 </p>
                 <div
                   className="pulse"

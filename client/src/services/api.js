@@ -108,18 +108,62 @@ export async function phoneReply(
   return parseResponse(res, "phone-reply");
 }
 
+// Confirm user's spoken location against live GPS.
+export async function phoneConfirmLocation({
+  friendName,
+  transcript,
+  latitude,
+  longitude,
+  nativeLanguage = "English",
+}) {
+  const res = await fetch(`${BASE}/phone-confirm-location`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      friendName,
+      transcript,
+      latitude,
+      longitude,
+      nativeLanguage,
+    }),
+  });
+  return parseResponse(res, "phone-confirm-location");
+}
+
+// Plan a nearby meetup destination based on current place and time budget.
+export async function phonePlanDestination({
+  friendName,
+  originPlaceName,
+  latitude,
+  longitude,
+  timeBudgetReply,
+  nativeLanguage = "English",
+}) {
+  const res = await fetch(`${BASE}/phone-plan-destination`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      friendName,
+      originPlaceName,
+      latitude,
+      longitude,
+      timeBudgetReply,
+      nativeLanguage,
+    }),
+  });
+  return parseResponse(res, "phone-plan-destination");
+}
+
 // Ongoing friend commentary while user searches
 export async function phoneYap({
   friendName,
   targetObject,
-  targetObjectTranslated,
-  gameMode,
-  chosenLanguage,
   visibleObjects = [],
   focusObject = "",
   noObjectRounds = 0,
-  targetLanguage = "Portuguese",
-  nativeLanguage = "English",
+  stepCount = 0,
+  retrievedObjects = [],
+  sessionSeconds = 0,
 }) {
   const res = await fetch(`${BASE}/phone-yap`, {
     method: "POST",
@@ -127,17 +171,45 @@ export async function phoneYap({
     body: JSON.stringify({
       friendName,
       targetObject,
-      targetObjectTranslated,
-      gameMode,
-      chosenLanguage,
       visibleObjects,
       focusObject,
       noObjectRounds,
-      targetLanguage,
-      nativeLanguage,
+      stepCount,
+      retrievedObjects,
+      sessionSeconds,
     }),
   });
   return parseResponse(res, "phone-yap");
+}
+
+// Ongoing route narration while user walks to destination.
+export async function phoneRouteYap({
+  friendName,
+  originPlaceName,
+  destinationName,
+  distanceRemainingMeters,
+  stepCount,
+  sessionSeconds,
+  storySeed = "",
+  noProgressRounds = 0,
+  nativeLanguage = "English",
+}) {
+  const res = await fetch(`${BASE}/phone-route-yap`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      friendName,
+      originPlaceName,
+      destinationName,
+      distanceRemainingMeters,
+      stepCount,
+      sessionSeconds,
+      storySeed,
+      noProgressRounds,
+      nativeLanguage,
+    }),
+  });
+  return parseResponse(res, "phone-route-yap");
 }
 
 // User interruption handling while searching
@@ -145,12 +217,7 @@ export async function phoneInterrupt({
   transcript,
   friendName,
   targetObject,
-  targetObjectTranslated,
-  gameMode,
-  chosenLanguage,
   visibleObjects = [],
-  targetLanguage = "Portuguese",
-  nativeLanguage = "English",
 }) {
   const res = await fetch(`${BASE}/phone-interrupt`, {
     method: "POST",
@@ -159,12 +226,7 @@ export async function phoneInterrupt({
       transcript,
       friendName,
       targetObject,
-      targetObjectTranslated,
-      gameMode,
-      chosenLanguage,
       visibleObjects,
-      targetLanguage,
-      nativeLanguage,
     }),
   });
   return parseResponse(res, "phone-interrupt");
@@ -234,30 +296,52 @@ export async function phoneStruggle(
   return parseResponse(res, "phone-struggle");
 }
 
-// Phone call found: get final success script
+// Fitness treasure-hunt found: get continuation script for next target
 export async function phoneFound(
   friendName,
-  targetObject,
-  targetObjectTranslated,
-  chosenLanguage,
-  struggled,
-  targetLanguage = "Portuguese",
-  nativeLanguage = "English",
+  foundObject,
+  nextTarget,
+  retrievedObjects = [],
+  stepCount = 0,
+  sessionSeconds = 0,
 ) {
   const res = await fetch(`${BASE}/phone-found`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       friendName,
-      targetObject,
-      targetObjectTranslated,
-      chosenLanguage,
-      struggled,
-      targetLanguage,
-      nativeLanguage,
+      foundObject,
+      nextTarget,
+      retrievedObjects,
+      stepCount,
+      sessionSeconds,
     }),
   });
   return parseResponse(res, "phone-found");
+}
+
+// Final line when user reaches the meeting destination.
+export async function phoneArrived({
+  friendName,
+  originPlaceName,
+  destinationName,
+  stepCount,
+  sessionSeconds,
+  nativeLanguage = "English",
+}) {
+  const res = await fetch(`${BASE}/phone-arrived`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      friendName,
+      originPlaceName,
+      destinationName,
+      stepCount,
+      sessionSeconds,
+      nativeLanguage,
+    }),
+  });
+  return parseResponse(res, "phone-arrived");
 }
 
 async function yoloCheckCv(imageBase64, targetObject) {

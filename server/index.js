@@ -220,6 +220,212 @@ function parseModelJsonSafe(rawText, contextLabel = "model-json") {
   );
 }
 
+function numberOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const r = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return r * c;
+}
+
+function estimateWalkingMinutes(distanceMeters) {
+  const speedMetersPerMin = 78;
+  return Math.max(1, Math.round((Number(distanceMeters) || 0) / speedMetersPerMin));
+}
+
+async function fetchJson(url, options = {}, context = "fetch-json") {
+  const res = await fetch(url, options);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${context} ${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
+function simplifyPlaceLabel(reverseData) {
+  if (!reverseData || typeof reverseData !== "object") return "";
+  const address = reverseData.address || {};
+  return (
+    address.building ||
+    address.amenity ||
+    address.attraction ||
+    address.university ||
+    address.college ||
+    address.school ||
+    address.house ||
+    address.road ||
+    reverseData.name ||
+    reverseData.display_name ||
+    ""
+  );
+}
+
+async function reverseGeocode(latitude, longitude) {
+  const lat = numberOrNull(latitude);
+  const lon = numberOrNull(longitude);
+  if (lat === null || lon === null) return null;
+
+  const url = new URL("https://nominatim.openstreetmap.org/reverse");
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("lat", String(lat));
+  url.searchParams.set("lon", String(lon));
+  url.searchParams.set("zoom", "18");
+  url.searchParams.set("addressdetails", "1");
+
+  try {
+    const data = await fetchJson(
+      url.toString(),
+      {
+        headers: {
+          "User-Agent": "yhack2026/1.0 (location-mission)",
+          "Accept-Language": "en",
+        },
+      },
+      "reverse-geocode",
+    );
+    return data;
+  } catch (err) {
+    console.warn("reverseGeocode failed:", err.message);
+    return null;
+  }
+}
+
+async function findNearbyPlaces(latitude, longitude, radiusMeters = 900) {
+  const lat = numberOrNull(latitude);
+  const lon = numberOrNull(longitude);
+  if (lat === null || lon === null) return [];
+
+  const query = `[out:json][timeout:15];
+(
+  node(around:${Math.round(radiusMeters)},${lat},${lon})["name"]["amenity"];
+  way(around:${Math.round(radiusMeters)},${lat},${lon})["name"]["amenity"];
+  node(around:${Math.round(radiusMeters)},${lat},${lon})["name"]["building"];
+  way(around:${Math.round(radiusMeters)},${lat},${lon})["name"]["building"];
+  node(around:${Math.round(radiusMeters)},${lat},${lon})["name"]["tourism"];
+  way(around:${Math.round(radiusMeters)},${lat},${lon})["name"]["tourism"];
+  node(around:${Math.round(radiusMeters)},${lat},${lon})["name"]["leisure"];
+  way(around:${Math.round(radiusMeters)},${lat},${lon})["name"]["leisure"];
+);
+out center 120;`;
+
+  try {
+    const data = await fetchJson(
+      "https://overpass-api.de/api/interpreter",
+      {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: query,
+      },
+      "overpass-nearby",
+    );
+    const elements = Array.isArray(data?.elements) ? data.elements : [];
+    const dedup = new Map();
+
+    for (const item of elements) {
+      const name = typeof item?.tags?.name === "string" ? item.tags.name.trim() : "";
+      if (!name) continue;
+      const itemLat =
+        numberOrNull(item.lat) ?? numberOrNull(item.center?.lat);
+      const itemLon =
+        numberOrNull(item.lon) ?? numberOrNull(item.center?.lon);
+      if (itemLat === null || itemLon === null) continue;
+      const key = normText(name);
+      if (!key) continue;
+      const distanceMeters = haversineMeters(lat, lon, itemLat, itemLon);
+      const previous = dedup.get(key);
+      if (!previous || distanceMeters < previous.distanceMeters) {
+        dedup.set(key, {
+          name,
+          latitude: itemLat,
+          longitude: itemLon,
+          distanceMeters,
+        });
+      }
+    }
+
+    return Array.from(dedup.values())
+      .sort((a, b) => a.distanceMeters - b.distanceMeters)
+      .slice(0, 40);
+  } catch (err) {
+    console.warn("findNearbyPlaces failed:", err.message);
+    return [];
+  }
+}
+
+function chooseDestinationFromNearby(nearbyPlaces, shortTime = false) {
+  if (!Array.isArray(nearbyPlaces) || nearbyPlaces.length === 0) return null;
+  const places = nearbyPlaces.filter((p) => p.distanceMeters >= 25);
+  if (places.length === 0) return nearbyPlaces[0];
+
+  if (shortTime) {
+    const close = places.find((p) => p.distanceMeters <= 220);
+    return close || places[0];
+  }
+
+  const medium = places.find((p) => p.distanceMeters >= 350 && p.distanceMeters <= 950);
+  return medium || places[Math.min(2, places.length - 1)] || places[0];
+}
+
+function inferShortTime(replyText) {
+  const t = normText(replyText);
+  if (!t) return true;
+  const shortSignals = [
+    "short",
+    "quick",
+    "few",
+    "2 min",
+    "2 mins",
+    "3 min",
+    "brief",
+    "little time",
+    "not much",
+  ];
+  if (shortSignals.some((s) => t.includes(s))) return true;
+
+  const longerSignals = [
+    "10 min",
+    "10 mins",
+    "ten min",
+    "ten mins",
+    "more time",
+    "i can walk",
+    "longer",
+  ];
+  if (longerSignals.some((s) => t.includes(s))) return false;
+  return true;
+}
+
+async function runGeminiJsonPrompt({
+  prompt,
+  contextLabel,
+  temperature = 0.7,
+  maxOutputTokens = 220,
+}) {
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const geminiRes = await lavaForward(geminiUrl, {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature, maxOutputTokens },
+  });
+  const data = await geminiRes.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  return parseModelJsonSafe(text, contextLabel);
+}
+
 // ─── Lava forward-proxy helper ───────────────────────────────────────────────
 // Lava routes your request to the provider and meters usage.
 // Format: POST https://api.lava.so/v1/forward?u=<URL-encoded provider endpoint>
@@ -391,27 +597,26 @@ Respond ONLY with JSON: { "correct": true|false, "feedback": "short encouraging 
 
 // ─── POST /api/phone-start ────────────────────────────────────────────────────
 app.post("/api/phone-start", async (req, res) => {
-  const {
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
-    nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
-  } = req.body;
+  const { nativeLanguage = "English" } = req.body;
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
   const friendName = pickRandomFrom(FRIEND_NAMES);
-  const targetObject = pickRandomObjectNoImmediateRepeat();
-  const prompt = `You are designing a script for an AI friend calling the user.
-Use this exact friend name: "${friendName}".
-Use this exact object in ${nativeLanguage}: "${targetObject}".
+  const prompt = `You are writing a short opening line for a friendly phone call.
+Friend name: "${friendName}".
+Language: ${nativeLanguage} only.
 
-Tasks:
-1. Translate "${targetObject}" to ${targetLanguage}.
-2. Write one friendly opening line in ${nativeLanguage} from "${friendName}" that asks whether to continue in ${nativeLanguage} or ${targetLanguage}.
+Goal:
+- Ask where the user is right now so you can meet them.
 
-Respond ONLY with valid JSON (no markdown fences):
+Instructions:
+1. Keep it casual and warm, like a friend meeting up.
+2. Ask user their current location.
+3. Max 24 words.
+
+Respond ONLY with valid JSON:
 {
-  "targetObjectTranslated": "object name in ${targetLanguage}",
-  "script": "opening script in ${nativeLanguage}"
+  "script": "opening line in ${nativeLanguage}"
 }`;
 
   try {
@@ -431,14 +636,14 @@ Respond ONLY with valid JSON (no markdown fences):
         .trim();
     }
 
-    const parsed = JSON.parse(text);
+    const parsed = parseModelJsonSafe(text, "phone-start");
     const payload = {
       friendName,
-      targetObject,
-      targetObjectTranslated: parsed.targetObjectTranslated || targetObject,
+      targetObject: "",
+      targetObjectTranslated: "",
       script:
         parsed.script ||
-        `Hey, it's ${friendName}. Should I speak in ${nativeLanguage} or ${targetLanguage}?`,
+        `Hey, it's ${friendName}. Where are you right now? I want to meet you nearby.`,
     };
 
     console.log(
@@ -447,6 +652,309 @@ Respond ONLY with valid JSON (no markdown fences):
     res.json(payload);
   } catch (err) {
     console.error("phone-start error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/phone-confirm-location ────────────────────────────────────────
+app.post("/api/phone-confirm-location", async (req, res) => {
+  const {
+    friendName = "Avery",
+    transcript = "",
+    latitude,
+    longitude,
+    nativeLanguage = "English",
+  } = req.body;
+
+  const lat = numberOrNull(latitude);
+  const lon = numberOrNull(longitude);
+  if (!transcript || lat === null || lon === null) {
+    return res
+      .status(400)
+      .json({ error: "transcript, latitude, and longitude required" });
+  }
+
+  try {
+    const reverse = await reverseGeocode(lat, lon);
+    const gpsPlace = simplifyPlaceLabel(reverse) || "your area";
+    const displayAddress = reverse?.display_name || gpsPlace;
+    const claimNorm = normText(transcript);
+    const gpsNorm = normText(`${gpsPlace} ${displayAddress}`);
+    const heuristicMatch =
+      claimNorm &&
+      gpsNorm &&
+      (gpsNorm.includes(claimNorm) ||
+        claimNorm
+          .split(" ")
+          .filter((t) => t.length >= 4)
+          .some((token) => gpsNorm.includes(token)));
+
+    const prompt = `You are "${friendName}" on a casual call in ${nativeLanguage}.
+User said they are at: "${transcript}".
+GPS reverse-geocoded place label: "${gpsPlace}".
+GPS full address context: "${displayAddress}".
+Heuristic text match result: ${heuristicMatch ? "likely match" : "uncertain"}.
+
+Task:
+1. Confirm where user is in a natural, friendly way like trying to meet them.
+2. Keep it concise (max 28 words).
+3. If uncertain mismatch, gently say what GPS suggests and ask a quick confirm.
+
+Respond ONLY with valid JSON:
+{
+  "claimMatchesGps": true|false,
+  "confirmedPlaceName": "short place/building name",
+  "script": "friendly confirmation line"
+}`;
+
+    let parsed = {};
+    try {
+      parsed = await runGeminiJsonPrompt({
+        prompt,
+        contextLabel: "phone-confirm-location",
+        temperature: 0.5,
+        maxOutputTokens: 170,
+      });
+    } catch (modelErr) {
+      console.warn("phone-confirm-location model fallback:", modelErr.message);
+    }
+
+    const modelMatch = Boolean(parsed.claimMatchesGps);
+    const claimMatchesGps =
+      heuristicMatch || (!heuristicMatch && modelMatch && claimNorm.length > 0);
+    const confirmedPlaceName =
+      typeof parsed.confirmedPlaceName === "string" &&
+      parsed.confirmedPlaceName.trim()
+        ? parsed.confirmedPlaceName.trim()
+        : gpsPlace;
+
+    res.json({
+      claimMatchesGps,
+      confirmedPlaceName,
+      latitude: lat,
+      longitude: lon,
+      script:
+        typeof parsed.script === "string" && parsed.script.trim()
+          ? parsed.script.trim()
+          : claimMatchesGps
+            ? `Perfect, got you at ${confirmedPlaceName}. I'll head near there.`
+            : `Got it, I see you around ${confirmedPlaceName}. Is that right?`,
+    });
+  } catch (err) {
+    console.error("phone-confirm-location error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/phone-plan-destination ────────────────────────────────────────
+app.post("/api/phone-plan-destination", async (req, res) => {
+  const {
+    friendName = "Avery",
+    originPlaceName = "",
+    latitude,
+    longitude,
+    timeBudgetReply = "",
+    nativeLanguage = "English",
+  } = req.body;
+
+  const lat = numberOrNull(latitude);
+  const lon = numberOrNull(longitude);
+  if (lat === null || lon === null) {
+    return res.status(400).json({ error: "latitude and longitude required" });
+  }
+
+  try {
+    const shortTime = inferShortTime(timeBudgetReply);
+    const reverse = await reverseGeocode(lat, lon);
+    const originName =
+      originPlaceName ||
+      simplifyPlaceLabel(reverse) ||
+      "your current building";
+
+    const nearby = await findNearbyPlaces(lat, lon, shortTime ? 420 : 1400);
+    const chosen = chooseDestinationFromNearby(nearby, shortTime);
+
+    const destinationName = chosen?.name || `${originName} Entrance`;
+    const destinationLat =
+      numberOrNull(chosen?.latitude) ?? lat;
+    const destinationLon =
+      numberOrNull(chosen?.longitude) ?? lon;
+    const rawDistance = haversineMeters(lat, lon, destinationLat, destinationLon);
+    const distanceMeters = Math.max(20, Math.round(rawDistance));
+    const walkMinutesRaw = estimateWalkingMinutes(distanceMeters);
+    const walkMinutes = shortTime
+      ? clamp(walkMinutesRaw, 1, 3)
+      : clamp(walkMinutesRaw, 4, 12);
+
+    const prompt = `You are "${friendName}" planning a meetup.
+Speak in ${nativeLanguage}.
+
+User origin place: "${originName}".
+Chosen destination: "${destinationName}".
+Estimated walk: ${walkMinutes} minutes.
+Time preference reply: "${timeBudgetReply}".
+
+Tasks:
+1. Write one inviting line asking user to meet you at "${destinationName}".
+2. Add one interesting "selling-point" story hook about what you are doing there.
+3. Keep it natural and concise (max 36 words).
+
+Respond ONLY with valid JSON:
+{
+  "script": "friendly meetup request with destination and story hook",
+  "storySeed": "1 short sentence seed for ongoing route narration"
+}`;
+
+    let parsed = {};
+    try {
+      parsed = await runGeminiJsonPrompt({
+        prompt,
+        contextLabel: "phone-plan-destination",
+        temperature: 0.7,
+        maxOutputTokens: 220,
+      });
+    } catch (modelErr) {
+      console.warn("phone-plan-destination model fallback:", modelErr.message);
+    }
+
+    const storySeed =
+      typeof parsed.storySeed === "string" && parsed.storySeed.trim()
+        ? parsed.storySeed.trim()
+        : `I found something cool at ${destinationName} and want to show you when you arrive.`;
+
+    res.json({
+      originPlaceName: originName,
+      destinationName,
+      destinationLatitude: destinationLat,
+      destinationLongitude: destinationLon,
+      walkMinutes,
+      arrivalRadiusMeters: shortTime ? 45 : 60,
+      shortTime,
+      storySeed,
+      script:
+        typeof parsed.script === "string" && parsed.script.trim()
+          ? parsed.script.trim()
+          : `Do you have ${walkMinutes} minutes? Meet me at ${destinationName}. I have a great story for you there.`,
+    });
+  } catch (err) {
+    console.error("phone-plan-destination error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/phone-route-yap ───────────────────────────────────────────────
+app.post("/api/phone-route-yap", async (req, res) => {
+  const {
+    friendName = "Avery",
+    originPlaceName = "your starting point",
+    destinationName = "the destination",
+    distanceRemainingMeters = 0,
+    stepCount = 0,
+    sessionSeconds = 0,
+    storySeed = "",
+    noProgressRounds = 0,
+    nativeLanguage = "English",
+  } = req.body;
+
+  try {
+    const distance = Math.max(0, Math.round(Number(distanceRemainingMeters) || 0));
+    const prompt = `You are "${friendName}" on a live call in ${nativeLanguage}.
+User is walking from "${originPlaceName}" to "${destinationName}" to meet you.
+
+Context:
+- Steps so far: ${Number(stepCount) || 0}
+- Session seconds: ${Number(sessionSeconds) || 0}
+- Distance remaining (meters): ${distance}
+- Story seed: "${storySeed}"
+- Consecutive low-progress rounds: ${Number(noProgressRounds) || 0}
+
+Instructions:
+1. Keep chatting like a friend and continue the destination story hook.
+2. Encourage user progress toward "${destinationName}".
+3. If low-progress rounds >=2, nudge them to keep moving.
+4. Max 30 words.
+
+Respond ONLY with valid JSON:
+{
+  "script": "one short conversational line"
+}`;
+
+    let parsed = {};
+    try {
+      parsed = await runGeminiJsonPrompt({
+        prompt,
+        contextLabel: "phone-route-yap",
+        temperature: 0.85,
+        maxOutputTokens: 150,
+      });
+    } catch (modelErr) {
+      console.warn("phone-route-yap model fallback:", modelErr.message);
+    }
+
+    const fallback = distance <= 80
+      ? `You're really close. Keep going to ${destinationName}, I'm almost downstairs.`
+      : `Nice pace. Keep coming toward ${destinationName}. I can't wait to tell you this story in person.`;
+
+    res.json({
+      script:
+        typeof parsed.script === "string" && parsed.script.trim()
+          ? parsed.script.trim()
+          : fallback,
+    });
+  } catch (err) {
+    console.error("phone-route-yap error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/phone-arrived ─────────────────────────────────────────────────
+app.post("/api/phone-arrived", async (req, res) => {
+  const {
+    friendName = "Avery",
+    originPlaceName = "your location",
+    destinationName = "our meetup spot",
+    stepCount = 0,
+    sessionSeconds = 0,
+    nativeLanguage = "English",
+  } = req.body;
+
+  try {
+    const prompt = `You are "${friendName}" in ${nativeLanguage}.
+User has reached "${destinationName}" from "${originPlaceName}".
+Steps taken: ${Number(stepCount) || 0}.
+Session seconds: ${Number(sessionSeconds) || 0}.
+
+Write one final line:
+- say they made it,
+- say you'll end the call now,
+- say you'll meet them downstairs.
+- max 24 words.
+
+Respond ONLY with valid JSON:
+{
+  "script": "final line"
+}`;
+
+    let parsed = {};
+    try {
+      parsed = await runGeminiJsonPrompt({
+        prompt,
+        contextLabel: "phone-arrived",
+        temperature: 0.6,
+        maxOutputTokens: 120,
+      });
+    } catch (modelErr) {
+      console.warn("phone-arrived model fallback:", modelErr.message);
+    }
+
+    res.json({
+      script:
+        typeof parsed.script === "string" && parsed.script.trim()
+          ? parsed.script.trim()
+          : `Perfect, you made it to ${destinationName}. I'll end the call now and meet you downstairs.`,
+    });
+  } catch (err) {
+    console.error("phone-arrived error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -523,72 +1031,53 @@ app.post("/api/phone-yap", async (req, res) => {
   const {
     friendName,
     targetObject,
-    targetObjectTranslated,
-    gameMode = "find_requested",
-    chosenLanguage,
     visibleObjects = [],
     focusObject = "",
     noObjectRounds = 0,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
-    nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
+    stepCount = 0,
+    retrievedObjects = [],
+    sessionSeconds = 0,
+    nativeLanguage = "English",
   } = req.body;
 
-  const preferredLanguage = normalizeChosenLanguage(
-    chosenLanguage,
-    nativeLanguage,
-    targetLanguage,
-  );
   const visibleList = Array.isArray(visibleObjects)
     ? visibleObjects.filter((v) => typeof v === "string").slice(0, 6)
     : [];
   const cleanFocusObject =
     typeof focusObject === "string" ? focusObject.trim() : "";
+  const retrievedList = Array.isArray(retrievedObjects)
+    ? retrievedObjects
+        .filter((v) => typeof v === "string")
+        .slice(-6)
+    : [];
+  const targetNorm = normText(targetObject);
+  const focusNorm = normText(cleanFocusObject);
+  const hasWrongObject =
+    Boolean(cleanFocusObject) && focusNorm && targetNorm && focusNorm !== targetNorm;
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
-  const prompt =
-    gameMode === "english_practice"
-      ? `You are "${friendName}" on a live call. The user chose ${nativeLanguage}.
-Speak in ${nativeLanguage}.
+  const prompt = `You are "${friendName}" in an ongoing fitness treasure-hunt phone call.
+Speak in ${nativeLanguage} only.
 
 Context:
-- Goal: conversational vocabulary mini-practice, not object hunt.
-- Visible objects: ${visibleList.length ? visibleList.join(", ") : "none detected"}
-- Focus object (if any): ${cleanFocusObject || "none"}
-- Target language: ${targetLanguage}
-
-Instructions:
-1. If a focus object exists, ask the user how to say that object in ${targetLanguage}.
-2. Include the correct translation of that focus object in field "teachingTranslation".
-3. Keep script short (max 24 words), friendly, and natural.
-4. If no object is visible, encourage them to point camera at any nearby object.
-
-Respond ONLY with valid JSON:
-{
-  "script": "one short line in ${nativeLanguage}",
-  "teachingObject": "focus object in ${nativeLanguage} or empty string",
-  "teachingTranslation": "that object in ${targetLanguage} or empty string"
-}`
-      : `You are "${friendName}", on a fun live call while user searches for your "${targetObject}".
-Speak in: ${preferredLanguage}.
-
-Context:
-- Target object in ${nativeLanguage}: ${targetObject}
-- Target object in ${targetLanguage}: ${targetObjectTranslated}
-- Other objects currently visible: ${visibleList.length ? visibleList.join(", ") : "none detected"}
-- Focus object (if any): ${cleanFocusObject || "none"}
+- Current target item to retrieve: "${targetObject}"
+- Focus object user is showing now: "${cleanFocusObject || "none"}"
+- Clearly visible objects: ${visibleList.length ? visibleList.join(", ") : "none detected"}
+- Is focus object wrong for this target: ${hasWrongObject ? "yes" : "no"}
+- Objects retrieved so far this session: ${retrievedList.length ? retrievedList.join(", ") : "none yet"}
+- Session footsteps so far: ${Number(stepCount) || 0}
+- Session time in seconds: ${Number(sessionSeconds) || 0}
 - Consecutive rounds with no clear objects: ${Number(noObjectRounds) || 0}
 
 Instructions:
-1. Keep it conversational, short (max 24 words), and encouraging.
-2. If focus object exists and it is NOT "${targetObject}", teach the user:
-   "${cleanFocusObject || "that object"} in ${targetLanguage} is <translation>".
-3. If no object is visible, briefly explain why finding "${targetObject}" matters.
-4. Gently guide them back to finding "${targetObject}".
+1. Keep it conversational and energetic, like a friend coaching a game.
+2. If focus object is wrong, explicitly say it's the wrong item and restate the correct target "${targetObject}".
+3. If no objects are visible, encourage movement and scanning the room.
+4. Continue the story momentum (fitness + treasure-hunt vibe).
+5. Max 28 words.
 
 Respond ONLY with valid JSON:
 {
-  "script": "one short line in ${preferredLanguage}",
-  "teachingObject": "non-target object you taught or empty string",
-  "teachingTranslation": "that object's ${targetLanguage} word or empty string"
+  "script": "one short line in ${nativeLanguage}"
 }`;
 
   try {
@@ -600,24 +1089,15 @@ Respond ONLY with valid JSON:
     const data = await geminiRes.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     const parsed = parseModelJsonSafe(text, "phone-yap");
-    const fallbackScript =
-      gameMode === "english_practice"
-        ? "Show me any object in front of your camera and I will quiz you on the Portuguese word."
-        : `I can see a few things around you. Keep looking for the ${targetObject}!`;
+    const fallbackScript = hasWrongObject
+      ? `Close, but ${cleanFocusObject} is the wrong item. Keep moving and find the ${targetObject}.`
+      : `Nice pace. Keep moving and find the ${targetObject}.`;
 
     res.json({
       script:
         typeof parsed.script === "string" && parsed.script.trim()
           ? parsed.script.trim()
           : fallbackScript,
-      teachingObject:
-        typeof parsed.teachingObject === "string"
-          ? parsed.teachingObject.trim()
-          : "",
-      teachingTranslation:
-        typeof parsed.teachingTranslation === "string"
-          ? parsed.teachingTranslation.trim()
-          : "",
     });
   } catch (err) {
     console.error("phone-yap error:", err.message);
@@ -631,64 +1111,33 @@ app.post("/api/phone-interrupt", async (req, res) => {
     transcript,
     friendName,
     targetObject,
-    targetObjectTranslated,
-    gameMode = "find_requested",
-    chosenLanguage,
     visibleObjects = [],
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
-    nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
+    nativeLanguage = "English",
   } = req.body;
 
   if (!transcript) return res.status(400).json({ error: "transcript required" });
 
-  const preferredLanguage = normalizeChosenLanguage(
-    chosenLanguage,
-    nativeLanguage,
-    targetLanguage,
-  );
   const visibleList = Array.isArray(visibleObjects)
     ? visibleObjects.filter((v) => typeof v === "string").slice(0, 8)
     : [];
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
-
-  const prompt =
-    gameMode === "english_practice"
-      ? `You are "${friendName}" speaking in a live call.
-User just interrupted and said: "${transcript}".
-Speak in: ${nativeLanguage}.
+  const prompt = `You are "${friendName}" on a live fitness treasure-hunt phone call.
+User interrupted and said: "${transcript}".
+Speak in ${nativeLanguage} only.
 
 Context:
-- User chose ${nativeLanguage} mode.
-- You are doing a vocabulary mini-practice for nearby objects in ${targetLanguage}.
-- Visible objects in scene: ${visibleList.length ? visibleList.join(", ") : "none detected"}.
+- Current target item: "${targetObject}"
+- Visible objects: ${visibleList.length ? visibleList.join(", ") : "none detected"}
 
 Instructions:
 1. Reply naturally to the user's interruption/question.
-2. Be warm, concise, and conversational.
-3. Bring them back to naming visible objects in ${targetLanguage}.
+2. Be warm, concise, and fun.
+3. Bring them back to finding "${targetObject}".
 4. Max 26 words.
 
 Respond ONLY with valid JSON:
 {
   "script": "short response in ${nativeLanguage}"
-}`
-      : `You are "${friendName}" speaking in a live call.
-User just interrupted and said: "${transcript}".
-Speak in: ${preferredLanguage}.
-
-Context:
-- You are trying to find "${targetObject}" (${targetObjectTranslated} in ${targetLanguage}).
-- Other visible objects in scene: ${visibleList.length ? visibleList.join(", ") : "none detected"}.
-
-Instructions:
-1. Reply naturally to the user's interruption/question.
-2. Be warm, concise, and conversational.
-3. Gently bring them back to finding "${targetObject}".
-4. Max 26 words.
-
-Respond ONLY with valid JSON:
-{
-  "script": "short response in ${preferredLanguage}"
 }`;
 
   try {
@@ -703,9 +1152,7 @@ Respond ONLY with valid JSON:
     res.json({
       script:
         parsed.script ||
-        (gameMode === "english_practice"
-          ? `Great question. Keep showing objects and let's practice ${targetLanguage} words together.`
-          : `Good question. Let's keep going, we still need the ${targetObject}.`),
+        `Great question. Keep moving and keep scanning, we still need the ${targetObject}.`,
     });
   } catch (err) {
     console.error("phone-interrupt error:", err.message);
@@ -881,28 +1328,38 @@ Respond ONLY with valid JSON (no markdown fences):
 app.post("/api/phone-found", async (req, res) => {
   const {
     friendName,
-    targetObject,
-    targetObjectTranslated,
-    chosenLanguage,
-    targetLanguage = process.env.TARGET_LANGUAGE || "Portuguese",
-    nativeLanguage = process.env.NATIVE_LANGUAGE || "English",
-    struggled = false,
+    foundObject,
+    nextTarget,
+    retrievedObjects = [],
+    stepCount = 0,
+    sessionSeconds = 0,
+    nativeLanguage = "English",
   } = req.body;
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const retrievedList = Array.isArray(retrievedObjects)
+    ? retrievedObjects
+        .filter((v) => typeof v === "string")
+        .slice(-8)
+    : [];
 
-  const prompt = `The user successfully found the object.
-If the chosen language was ${nativeLanguage} (or if struggled=true):
-Write a script from ${friendName} saying: "Nice, thank you! Just to let you know the ${targetLanguage} word for this object is ${targetObjectTranslated}, so next time you know what I need from you!"
+  const prompt = `You are "${friendName}" in a live fitness treasure-hunt call.
+The user just retrieved: "${foundObject}".
+Next object to retrieve: "${nextTarget}".
+Objects retrieved so far: ${retrievedList.length ? retrievedList.join(", ") : "none"}.
+Session footsteps so far: ${Number(stepCount) || 0}.
+Session time in seconds: ${Number(sessionSeconds) || 0}.
 
-If the chosen language was ${targetLanguage} and struggled=false:
-Write a script in ${targetLanguage} saying: "Nice, thanks so much!" and complimenting them.
+Write one short energetic continuation line in ${nativeLanguage}:
+- celebrate finding "${foundObject}",
+- keep the story going,
+- clearly tell them the next target is "${nextTarget}",
+- do NOT end the call.
+- max 30 words.
 
-The chosen language was ${chosenLanguage} and struggled is ${struggled}.
-
-Respond ONLY with valid JSON (no markdown fences):
+Respond ONLY with valid JSON:
 {
-  "script": "the final success script"
+  "script": "continuation line in ${nativeLanguage}"
 }`;
 
   try {
@@ -915,14 +1372,13 @@ Respond ONLY with valid JSON (no markdown fences):
     let text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     if (!text) throw new Error("Empty Gemini response");
 
-    if (text.startsWith("```")) {
-      text = text
-        .replace(/^```[a-zA-Z]*\s*/, "")
-        .replace(/\s*```$/, "")
-        .trim();
-    }
-
-    res.json(JSON.parse(text));
+    const parsed = parseModelJsonSafe(text, "phone-found");
+    res.json({
+      script:
+        typeof parsed.script === "string" && parsed.script.trim()
+          ? parsed.script.trim()
+          : `Great grab, ${foundObject}! Keep moving, next mission item is ${nextTarget}.`,
+    });
   } catch (err) {
     console.error("phone-found error:", err.message);
     res.status(500).json({ error: err.message });
